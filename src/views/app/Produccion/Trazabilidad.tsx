@@ -34,7 +34,7 @@ import {
   FaClipboardList
 } from 'react-icons/fa';
 import { produccionService } from '../../../services/produccionService';
-import type { Planta, PlantaInforme } from '../../../types/produccion.last';
+import type { Planta, PlantaInforme } from '../../../types/produccion';
 
 // Componente Card para estadísticas
 const StatCard = ({ title, value, icon, color }: { title: string; value: string | number; icon?: React.ReactNode; color?: string }) => {

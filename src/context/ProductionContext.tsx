@@ -1,17 +1,22 @@
 // src/context/ProductionContext.tsx
-import React, { createContext, useContext, useState, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import api from '../services/api';
-import {
-  Planta,
-  PlantaInforme,
-  EtapaTrazabilidad,
-  CrearPlantaDTO,
-  UpdatePlantaDTO,
-  CrearInformeDTO,
-  CrearEtapaDTO,
-  PlantaConInformes,
-  PlantaConTrazabilidad,
-} from '../types/produccion';
+import type {
+  ProductionLot,
+  LotTracking,
+  CreateLotDto,
+  UpdateLotDto,
+  CreateLotTrackingDto,
+  Product,
+  User,
+  Company,
+  PaginatedResponse,
+  PaginationParams,
+  LotEstado,
+  EtapaProduccion,
+} from '../types/index';
+// ... resto del código
 
 interface ProductionContextType {
   plantas: Planta[];

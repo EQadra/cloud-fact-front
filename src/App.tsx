@@ -1,6 +1,8 @@
 // src/App.tsx
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+
+// ===== CONTEXT PROVIDERS =====
 import { AuthProvider } from './context/AuthContext';
 import { UsersProvider } from './context/UsersContext';
 import { RolesProvider } from './context/RolesContext';
@@ -8,38 +10,28 @@ import { ProductionProvider } from './context/ProductionContext';
 import { SecurityProvider } from './context/SecurityContext';
 import { MedicalProvider } from './context/MedicalContext';
 import { CommercialProvider } from './context/CommercialContext';
+
+// ===== COMPONENTS =====
 import { ProtectedRoute } from './components/ProtectedRoute';
 
-// Layout
-import MainLayout from './components/Layout/MainLayout';
-
-// Pages - Auth
+// ===== AUTH PAGES =====
 import Login from './views/auth/Login';
 import UsersList from './views/auth/Users';
 import RolesList from './views/auth/Roles';
 import PermissionsList from './views/auth/Permissions';
 
-// Pages - Production
-import PlantasList from './views/app/Produccion/PlantasList';
-import PlantaDetail from './views/app/Produccion/PlantaDetail';
+// ===== PRODUCTION PAGES =====
 import Trazabilidad from './views/app/Produccion/Trazabilidad';
 
-// Pages - Security
-import AccessVehicular from './views/app/Seguridad/AccessVehicular';
-import AccessPeatonal from './views/app/Seguridad/AccessPeatonal';
+// ===== SECURITY PAGES =====
+import AccessCarControl from './views/app/Seguridad/AccessCarControl';
+import AccessControl from './views/app/Seguridad/AccessControl';
+import ExternalView from './views/app/Seguridad/ExternalView';
 import IncidentBook from './views/app/Seguridad/IncidentBook';
-import Cameras from './views/app/Seguridad/Cameras';
 
-// Pages - Medical
-import PatientsList from './views/app/Medical/PatientsList';
-import PatientDetail from './views/app/Medical/PatientDetail';
-
-// Pages - Commercial
-import SalesList from './views/app/Comercial/SalesList';
-import ProductsList from './views/app/Comercial/ProductsList';
-
-// Unauthorized page
-import Unauthorized from './views/Unauthorized';
+// =============================================
+// APP COMPONENT
+// =============================================
 
 const App: React.FC = () => {
   return (
@@ -54,12 +46,11 @@ const App: React.FC = () => {
                     <Routes>
                       {/* Auth Routes */}
                       <Route path="/login" element={<Login />} />
-                      <Route path="/unauthorized" element={<Unauthorized />} />
                       
                       {/* Main Layout Routes */}
                       <Route path="/" element={
                         <ProtectedRoute>
-                          <MainLayout />
+                          <div>Main Layout - En construcción</div>
                         </ProtectedRoute>
                       }>
                         <Route index element={<Navigate to="/dashboard" />} />
@@ -98,7 +89,7 @@ const App: React.FC = () => {
                           path="produccion" 
                           element={
                             <ProtectedRoute requiredPermissions={['VER_PRODUCCION']}>
-                              <PlantasList />
+                              <div>Lista de Plantas - En construcción</div>
                             </ProtectedRoute>
                           } 
                         />
@@ -106,7 +97,7 @@ const App: React.FC = () => {
                           path="produccion/:id" 
                           element={
                             <ProtectedRoute requiredPermissions={['VER_PRODUCCION']}>
-                              <PlantaDetail />
+                              <div>Detalle de Planta - En construcción</div>
                             </ProtectedRoute>
                           } 
                         />
@@ -124,7 +115,7 @@ const App: React.FC = () => {
                           path="seguridad/acceso-vehicular" 
                           element={
                             <ProtectedRoute requiredPermissions={['VER_ACCESO']}>
-                              <AccessVehicular />
+                              <div>Control de Acceso Vehicular - En construcción</div>
                             </ProtectedRoute>
                           } 
                         />
@@ -132,7 +123,31 @@ const App: React.FC = () => {
                           path="seguridad/acceso-peatonal" 
                           element={
                             <ProtectedRoute requiredPermissions={['VER_ACCESO']}>
-                              <AccessPeatonal />
+                              <div>Control de Acceso Peatonal - En construcción</div>
+                            </ProtectedRoute>
+                          } 
+                        />
+                        <Route 
+                          path="seguridad/acceso-control" 
+                          element={
+                            <ProtectedRoute requiredPermissions={['VER_ACCESO']}>
+                              <AccessControl />
+                            </ProtectedRoute>
+                          } 
+                        />
+                        <Route 
+                          path="seguridad/acceso-car-control" 
+                          element={
+                            <ProtectedRoute requiredPermissions={['VER_ACCESO']}>
+                              <AccessCarControl />
+                            </ProtectedRoute>
+                          } 
+                        />
+                        <Route 
+                          path="seguridad/external" 
+                          element={
+                            <ProtectedRoute requiredPermissions={['VER_ACCESO']}>
+                              <ExternalView />
                             </ProtectedRoute>
                           } 
                         />
@@ -148,7 +163,7 @@ const App: React.FC = () => {
                           path="seguridad/camaras" 
                           element={
                             <ProtectedRoute requiredPermissions={['VER_CAMARAS']}>
-                              <Cameras />
+                              <div>Gestión de Cámaras - En construcción</div>
                             </ProtectedRoute>
                           } 
                         />
@@ -158,7 +173,7 @@ const App: React.FC = () => {
                           path="medical/pacientes" 
                           element={
                             <ProtectedRoute requiredPermissions={['VER_PACIENTES']}>
-                              <PatientsList />
+                              <div>Lista de Pacientes - En construcción</div>
                             </ProtectedRoute>
                           } 
                         />
@@ -166,7 +181,7 @@ const App: React.FC = () => {
                           path="medical/pacientes/:id" 
                           element={
                             <ProtectedRoute requiredPermissions={['VER_PACIENTES']}>
-                              <PatientDetail />
+                              <div>Detalle de Paciente - En construcción</div>
                             </ProtectedRoute>
                           } 
                         />
@@ -176,7 +191,7 @@ const App: React.FC = () => {
                           path="comercial/ventas" 
                           element={
                             <ProtectedRoute requiredPermissions={['VER_VENTAS']}>
-                              <SalesList />
+                              <div>Lista de Ventas - En construcción</div>
                             </ProtectedRoute>
                           } 
                         />
@@ -184,7 +199,7 @@ const App: React.FC = () => {
                           path="comercial/productos" 
                           element={
                             <ProtectedRoute requiredPermissions={['VER_PRODUCTOS']}>
-                              <ProductsList />
+                              <div>Lista de Productos - En construcción</div>
                             </ProtectedRoute>
                           } 
                         />

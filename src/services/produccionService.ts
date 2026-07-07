@@ -10,7 +10,7 @@ import type {
   InformePlanta,
   EtapaTrazabilidad,
   PlantaInforme
-} from '../types/produccion.last';
+} from '../types/produccion';
 
 // ============================================
 // DATOS EN MEMORIA (LOCAL STORAGE)
