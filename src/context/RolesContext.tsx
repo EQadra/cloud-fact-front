@@ -1,5 +1,5 @@
 // src/context/RolesContext.tsx
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import api from '../services/api';
 import type {
@@ -8,52 +8,40 @@ import type {
   UpdateRoleDto,
   Permission,
   RolePermission,
-  PaginatedResponse,
   PaginationParams,
 } from '../types/index';
-// ... resto del código
+
 // =============================================
 // INTERFACES DEL CONTEXTO
 // =============================================
 
 interface RolesContextType {
-  // Estado
   roles: Role[];
   selectedRole: Role | null;
   permissions: Permission[];
   rolePermissions: RolePermission[];
   loading: boolean;
   error: string | null;
-  
-  // Paginación
   pagination: {
     page: number;
     limit: number;
     total: number;
     totalPages: number;
   };
-  
-  // CRUD Roles
   fetchRoles: (params?: PaginationParams) => Promise<void>;
   fetchRoleById: (id: string) => Promise<Role>;
   createRole: (data: CreateRoleDto) => Promise<Role>;
   updateRole: (id: string, data: UpdateRoleDto) => Promise<Role>;
   deleteRole: (id: string) => Promise<void>;
-  
-  // Permisos
   fetchPermissions: () => Promise<void>;
   fetchRolePermissions: (roleId: string) => Promise<RolePermission[]>;
-  assignPermissionToRole: (roleId: string, permissionId: string) => Promise<void>;
+  assignPermissionsToRole: (roleId: string, permissionIds: string[]) => Promise<void>;
   removePermissionFromRole: (roleId: string, permissionId: string) => Promise<void>;
-  syncRolePermissions: (roleId: string, permissionIds: string[]) => Promise<void>;
-  
-  // Selección
   selectRole: (role: Role | null) => void;
   clearSelectedRole: () => void;
-  
-  // Utilitarios
   hasPermission: (roleId: string, permissionName: string) => boolean;
   getRoleByName: (name: string) => Role | undefined;
+  clearError: () => void;
 }
 
 // =============================================
@@ -63,19 +51,28 @@ interface RolesContextType {
 const RolesContext = createContext<RolesContextType | undefined>(undefined);
 
 // =============================================
-// PROVIDER
+// HOOK
+// =============================================
+
+export const useRoles = (): RolesContextType => {
+  const context = useContext(RolesContext);
+  if (!context) {
+    throw new Error('useRoles must be used within a RolesProvider');
+  }
+  return context;
+};
+
+// =============================================
+// PROVIDER - SIN useEffect
 // =============================================
 
 export const RolesProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Estados principales
   const [roles, setRoles] = useState<Role[]>([]);
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
-  // Estado de paginación
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 10,
@@ -87,7 +84,6 @@ export const RolesProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // FUNCIONES CRUD - ROLES
   // =============================================
 
-  // Obtener todos los roles con paginación
   const fetchRoles = useCallback(async (params?: PaginationParams) => {
     setLoading(true);
     setError(null);
@@ -96,29 +92,55 @@ export const RolesProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       if (params?.page) queryParams.append('page', params.page.toString());
       if (params?.limit) queryParams.append('limit', params.limit.toString());
       if (params?.search) queryParams.append('search', params.search);
-      if (params?.sortBy) queryParams.append('sortBy', params.sortBy);
-      if (params?.sortOrder) queryParams.append('sortOrder', params.sortOrder);
+
+      const response = await api.get(`/roles?${queryParams.toString()}`);
       
-      const response = await api.get<PaginatedResponse<Role>>(`/roles?${queryParams.toString()}`);
+      console.log('📦 Respuesta roles:', response.data);
       
-      setRoles(response.data.data);
+      let rolesData = [];
+      let total = 0;
+      let currentPage = params?.page || 1;
+      let totalPages = 1;
+      let limit = params?.limit || 10;
+
+      if (response.data && typeof response.data === 'object') {
+        if (Array.isArray(response.data.data)) {
+          rolesData = response.data.data;
+          if (response.data.meta) {
+            total = response.data.meta.total || 0;
+            currentPage = response.data.meta.page || 1;
+            totalPages = response.data.meta.totalPages || 1;
+            limit = response.data.meta.limit || 10;
+          }
+        } else if (Array.isArray(response.data)) {
+          rolesData = response.data;
+          total = response.data.length;
+          totalPages = 1;
+        } else if (response.data.roles && Array.isArray(response.data.roles)) {
+          rolesData = response.data.roles;
+          total = response.data.total || response.data.roles.length;
+          totalPages = 1;
+        } else {
+          rolesData = Array.isArray(response.data) ? response.data : [];
+        }
+      }
+
+      setRoles(rolesData);
       setPagination({
-        page: response.data.meta.page,
-        limit: response.data.meta.limit,
-        total: response.data.meta.total,
-        totalPages: response.data.meta.totalPages,
+        page: currentPage,
+        limit: limit,
+        total: total,
+        totalPages: totalPages,
       });
     } catch (err: any) {
       const errorMessage = err.response?.data?.message || 'Error al cargar los roles';
       setError(errorMessage);
       console.error('Error fetching roles:', err);
-      throw err;
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Obtener un rol por ID
   const fetchRoleById = useCallback(async (id: string): Promise<Role> => {
     setLoading(true);
     setError(null);
@@ -137,7 +159,6 @@ export const RolesProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, []);
 
-  // Crear un nuevo rol
   const createRole = useCallback(async (data: CreateRoleDto): Promise<Role> => {
     setLoading(true);
     setError(null);
@@ -156,7 +177,6 @@ export const RolesProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, []);
 
-  // Actualizar un rol
   const updateRole = useCallback(async (id: string, data: UpdateRoleDto): Promise<Role> => {
     setLoading(true);
     setError(null);
@@ -164,9 +184,7 @@ export const RolesProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const response = await api.patch<Role>(`/roles/${id}`, data);
       const updatedRole = response.data;
       setRoles(prev => prev.map(r => r.id === id ? updatedRole : r));
-      if (selectedRole?.id === id) {
-        setSelectedRole(updatedRole);
-      }
+      if (selectedRole?.id === id) setSelectedRole(updatedRole);
       return updatedRole;
     } catch (err: any) {
       const errorMessage = err.response?.data?.message || 'Error al actualizar el rol';
@@ -178,16 +196,13 @@ export const RolesProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, [selectedRole]);
 
-  // Eliminar un rol
   const deleteRole = useCallback(async (id: string): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
       await api.delete(`/roles/${id}`);
       setRoles(prev => prev.filter(r => r.id !== id));
-      if (selectedRole?.id === id) {
-        setSelectedRole(null);
-      }
+      if (selectedRole?.id === id) setSelectedRole(null);
     } catch (err: any) {
       const errorMessage = err.response?.data?.message || 'Error al eliminar el rol';
       setError(errorMessage);
@@ -199,10 +214,9 @@ export const RolesProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [selectedRole]);
 
   // =============================================
-  // FUNCIONES DE PERMISOS
+  // FUNCIONES DE PERMISOS - CORREGIDAS PARA TU BACKEND
   // =============================================
 
-  // Obtener todos los permisos disponibles
   const fetchPermissions = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -213,17 +227,16 @@ export const RolesProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const errorMessage = err.response?.data?.message || 'Error al cargar los permisos';
       setError(errorMessage);
       console.error('Error fetching permissions:', err);
-      throw err;
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Obtener permisos de un rol específico
   const fetchRolePermissions = useCallback(async (roleId: string): Promise<RolePermission[]> => {
     setLoading(true);
     setError(null);
     try {
+      // ✅ Usar GET /roles/:id/permissions (existe en tu backend)
       const response = await api.get<RolePermission[]>(`/roles/${roleId}/permissions`);
       setRolePermissions(response.data);
       return response.data;
@@ -237,54 +250,36 @@ export const RolesProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, []);
 
-  // Asignar un permiso a un rol
-  const assignPermissionToRole = useCallback(async (roleId: string, permissionId: string): Promise<void> => {
+  // ✅ Asignar múltiples permisos a un rol - Usa POST /roles/:id/permissions/bulk
+  const assignPermissionsToRole = useCallback(async (roleId: string, permissionIds: string[]): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
-      await api.post(`/roles/${roleId}/permissions/${permissionId}`);
-      // Recargar permisos del rol
+      // ✅ Usar POST /roles/:id/permissions/bulk (existe en tu backend)
+      await api.post(`/roles/${roleId}/permissions/bulk`, { permissionIds });
       await fetchRolePermissions(roleId);
     } catch (err: any) {
-      const errorMessage = err.response?.data?.message || 'Error al asignar el permiso';
+      const errorMessage = err.response?.data?.message || 'Error al asignar los permisos';
       setError(errorMessage);
-      console.error('Error assigning permission:', err);
+      console.error('Error assigning permissions:', err);
       throw err;
     } finally {
       setLoading(false);
     }
   }, [fetchRolePermissions]);
 
-  // Remover un permiso de un rol
+  // ✅ Remover un permiso de un rol - Usa DELETE /roles/:id/permissions/:permissionId
   const removePermissionFromRole = useCallback(async (roleId: string, permissionId: string): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
+      // ✅ Usar DELETE /roles/:id/permissions/:permissionId (existe en tu backend)
       await api.delete(`/roles/${roleId}/permissions/${permissionId}`);
-      // Recargar permisos del rol
       await fetchRolePermissions(roleId);
     } catch (err: any) {
       const errorMessage = err.response?.data?.message || 'Error al remover el permiso';
       setError(errorMessage);
       console.error('Error removing permission:', err);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [fetchRolePermissions]);
-
-  // Sincronizar todos los permisos de un rol (reemplazar lista completa)
-  const syncRolePermissions = useCallback(async (roleId: string, permissionIds: string[]): Promise<void> => {
-    setLoading(true);
-    setError(null);
-    try {
-      await api.put(`/roles/${roleId}/permissions`, { permissionIds });
-      // Recargar permisos del rol
-      await fetchRolePermissions(roleId);
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.message || 'Error al sincronizar los permisos';
-      setError(errorMessage);
-      console.error('Error syncing permissions:', err);
       throw err;
     } finally {
       setLoading(false);
@@ -313,67 +308,46 @@ export const RolesProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // FUNCIONES UTILITARIAS
   // =============================================
 
-  // Verificar si un rol tiene un permiso específico
   const hasPermission = useCallback((roleId: string, permissionName: string): boolean => {
     const role = roles.find(r => r.id === roleId);
     if (!role) return false;
     return role.permissions?.some(
-      rp => rp.permission.nombre === permissionName
+      rp => rp.permission?.nombre === permissionName
     ) || false;
   }, [roles]);
 
-  // Obtener un rol por su nombre
   const getRoleByName = useCallback((name: string): Role | undefined => {
     return roles.find(r => r.nombre.toLowerCase() === name.toLowerCase());
   }, [roles]);
 
-  // =============================================
-  // EFECTOS
-  // =============================================
-
-  // Cargar roles al montar el componente
-  useEffect(() => {
-    fetchRoles();
-    fetchPermissions();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const clearError = useCallback(() => setError(null), []);
 
   // =============================================
-  // VALUE DEL CONTEXTO
+  // ✅ SIN useEffect - Los datos se cargan desde el componente
   // =============================================
 
   const value: RolesContextType = {
-    // Estado
     roles,
     selectedRole,
     permissions,
     rolePermissions,
     loading,
     error,
-    
-    // Paginación
     pagination,
-    
-    // CRUD Roles
     fetchRoles,
     fetchRoleById,
     createRole,
     updateRole,
     deleteRole,
-    
-    // Permisos
     fetchPermissions,
     fetchRolePermissions,
-    assignPermissionToRole,
+    assignPermissionsToRole,        // ✅ Cambiado para usar bulk
     removePermissionFromRole,
-    syncRolePermissions,
-    
-    // Selección
     selectRole,
     clearSelectedRole,
-    
-    // Utilitarios
     hasPermission,
     getRoleByName,
+    clearError,
   };
 
   return (
@@ -381,16 +355,4 @@ export const RolesProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       {children}
     </RolesContext.Provider>
   );
-};
-
-// =============================================
-// HOOK PERSONALIZADO
-// =============================================
-
-export const useRoles = (): RolesContextType => {
-  const context = useContext(RolesContext);
-  if (!context) {
-    throw new Error('useRoles must be used within a RolesProvider');
-  }
-  return context;
 };

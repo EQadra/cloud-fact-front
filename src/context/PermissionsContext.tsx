@@ -1,50 +1,40 @@
 // src/context/PermissionsContext.tsx
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import api from '../services/api';
 import type {
   Permission,
   CreatePermissionDto,
-  PaginatedResponse,
   PaginationParams,
 } from '../types/index';
-// ... resto del código
 
 // =============================================
 // INTERFACES DEL CONTEXTO
 // =============================================
 
 interface PermissionsContextType {
-  // Estado
   permissions: Permission[];
   selectedPermission: Permission | null;
   loading: boolean;
   error: string | null;
-  
-  // Paginación
   pagination: {
     page: number;
     limit: number;
     total: number;
     totalPages: number;
   };
-  
-  // CRUD Permisos
   fetchPermissions: (params?: PaginationParams) => Promise<void>;
   fetchPermissionById: (id: string) => Promise<Permission>;
   createPermission: (data: CreatePermissionDto) => Promise<Permission>;
   updatePermission: (id: string, data: Partial<CreatePermissionDto>) => Promise<Permission>;
   deletePermission: (id: string) => Promise<void>;
-  
-  // Selección
   selectPermission: (permission: Permission | null) => void;
   clearSelectedPermission: () => void;
-  
-  // Utilitarios
   getPermissionsByModule: (module: string) => Permission[];
   getPermissionByName: (name: string) => Permission | undefined;
   groupPermissionsByModule: () => Record<string, Permission[]>;
   searchPermissions: (query: string) => Permission[];
+  clearError: () => void;
 }
 
 // =============================================
@@ -54,17 +44,26 @@ interface PermissionsContextType {
 const PermissionsContext = createContext<PermissionsContextType | undefined>(undefined);
 
 // =============================================
-// PROVIDER
+// HOOK PERSONALIZADO - RENOMBRADO
+// =============================================
+
+export const usePermissionsContext = (): PermissionsContextType => {
+  const context = useContext(PermissionsContext);
+  if (!context) {
+    throw new Error('usePermissionsContext must be used within a PermissionsProvider');
+  }
+  return context;
+};
+
+// =============================================
+// PROVIDER - SIN useEffect
 // =============================================
 
 export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Estados principales
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [selectedPermission, setSelectedPermission] = useState<Permission | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
-  // Estado de paginación
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 10,
@@ -76,7 +75,6 @@ export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ childre
   // FUNCIONES CRUD - PERMISOS
   // =============================================
 
-  // Obtener todos los permisos con paginación
   const fetchPermissions = useCallback(async (params?: PaginationParams) => {
     setLoading(true);
     setError(null);
@@ -85,29 +83,59 @@ export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ childre
       if (params?.page) queryParams.append('page', params.page.toString());
       if (params?.limit) queryParams.append('limit', params.limit.toString());
       if (params?.search) queryParams.append('search', params.search);
-      if (params?.sortBy) queryParams.append('sortBy', params.sortBy);
-      if (params?.sortOrder) queryParams.append('sortOrder', params.sortOrder);
+
+      const response = await api.get(`/permissions?${queryParams.toString()}`);
       
-      const response = await api.get<PaginatedResponse<Permission>>(`/permissions?${queryParams.toString()}`);
+      console.log('📦 Respuesta permisos:', response.data);
       
-      setPermissions(response.data.data);
+      let permissionsData = [];
+      let total = 0;
+      let currentPage = params?.page || 1;
+      let totalPages = 1;
+      let limit = params?.limit || 10;
+
+      if (response.data && typeof response.data === 'object') {
+        if (Array.isArray(response.data.data)) {
+          permissionsData = response.data.data;
+          if (response.data.meta) {
+            total = response.data.meta.total || 0;
+            currentPage = response.data.meta.page || 1;
+            totalPages = response.data.meta.totalPages || 1;
+            limit = response.data.meta.limit || 10;
+          }
+        } else if (Array.isArray(response.data)) {
+          permissionsData = response.data;
+          total = response.data.length;
+          totalPages = 1;
+        } else if (response.data.permissions && Array.isArray(response.data.permissions)) {
+          permissionsData = response.data.permissions;
+          total = response.data.total || response.data.permissions.length;
+          totalPages = 1;
+        } else if (response.data.items && Array.isArray(response.data.items)) {
+          permissionsData = response.data.items;
+          total = response.data.total || response.data.items.length;
+          totalPages = 1;
+        } else {
+          permissionsData = Array.isArray(response.data) ? response.data : [];
+        }
+      }
+
+      setPermissions(permissionsData);
       setPagination({
-        page: response.data.meta.page,
-        limit: response.data.meta.limit,
-        total: response.data.meta.total,
-        totalPages: response.data.meta.totalPages,
+        page: currentPage,
+        limit: limit,
+        total: total,
+        totalPages: totalPages,
       });
     } catch (err: any) {
       const errorMessage = err.response?.data?.message || 'Error al cargar los permisos';
       setError(errorMessage);
       console.error('Error fetching permissions:', err);
-      throw err;
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Obtener un permiso por ID
   const fetchPermissionById = useCallback(async (id: string): Promise<Permission> => {
     setLoading(true);
     setError(null);
@@ -126,7 +154,6 @@ export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ childre
     }
   }, []);
 
-  // Crear un nuevo permiso
   const createPermission = useCallback(async (data: CreatePermissionDto): Promise<Permission> => {
     setLoading(true);
     setError(null);
@@ -145,7 +172,6 @@ export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ childre
     }
   }, []);
 
-  // Actualizar un permiso
   const updatePermission = useCallback(async (id: string, data: Partial<CreatePermissionDto>): Promise<Permission> => {
     setLoading(true);
     setError(null);
@@ -167,7 +193,6 @@ export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ childre
     }
   }, [selectedPermission]);
 
-  // Eliminar un permiso
   const deletePermission = useCallback(async (id: string): Promise<void> => {
     setLoading(true);
     setError(null);
@@ -203,17 +228,14 @@ export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ childre
   // FUNCIONES UTILITARIAS
   // =============================================
 
-  // Obtener permisos por módulo
   const getPermissionsByModule = useCallback((module: string): Permission[] => {
     return permissions.filter(p => p.modulo === module);
   }, [permissions]);
 
-  // Obtener un permiso por nombre
   const getPermissionByName = useCallback((name: string): Permission | undefined => {
     return permissions.find(p => p.nombre === name);
   }, [permissions]);
 
-  // Agrupar permisos por módulo
   const groupPermissionsByModule = useCallback((): Record<string, Permission[]> => {
     const grouped: Record<string, Permission[]> = {};
     permissions.forEach(permission => {
@@ -226,7 +248,6 @@ export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ childre
     return grouped;
   }, [permissions]);
 
-  // Buscar permisos
   const searchPermissions = useCallback((query: string): Permission[] => {
     const lowerQuery = query.toLowerCase();
     return permissions.filter(p => 
@@ -236,45 +257,30 @@ export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ childre
     );
   }, [permissions]);
 
-  // =============================================
-  // EFECTOS
-  // =============================================
-
-  // Cargar permisos al montar el componente
-  useEffect(() => {
-    fetchPermissions();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const clearError = useCallback(() => setError(null), []);
 
   // =============================================
-  // VALUE DEL CONTEXTO
+  // ❌ SIN useEffect - Los datos se cargan desde el componente
   // =============================================
 
   const value: PermissionsContextType = {
-    // Estado
     permissions,
     selectedPermission,
     loading,
     error,
-    
-    // Paginación
     pagination,
-    
-    // CRUD Permisos
     fetchPermissions,
     fetchPermissionById,
     createPermission,
     updatePermission,
     deletePermission,
-    
-    // Selección
     selectPermission,
     clearSelectedPermission,
-    
-    // Utilitarios
     getPermissionsByModule,
     getPermissionByName,
     groupPermissionsByModule,
     searchPermissions,
+    clearError,
   };
 
   return (
@@ -282,16 +288,4 @@ export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ childre
       {children}
     </PermissionsContext.Provider>
   );
-};
-
-// =============================================
-// HOOK PERSONALIZADO
-// =============================================
-
-export const usePermissions = (): PermissionsContextType => {
-  const context = useContext(PermissionsContext);
-  if (!context) {
-    throw new Error('usePermissions must be used within a PermissionsProvider');
-  }
-  return context;
 };

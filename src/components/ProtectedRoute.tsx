@@ -1,96 +1,85 @@
 // src/components/ProtectedRoute.tsx
 import React from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
   requiredPermissions?: string[];
-  requiredAnyPermissions?: string[];
-  requiredRoles?: string[];
-  redirectTo?: string;
+  // Nuevo: permitir acceso sin verificar permisos (solo autenticación)
+  requireAuthOnly?: boolean;
 }
 
-export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
-  children,
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ 
+  children, 
   requiredPermissions = [],
-  requiredAnyPermissions = [],
-  requiredRoles = [],
-  redirectTo = '/login',
+  requireAuthOnly = false
 }) => {
-  const { isAuthenticated, loading, hasPermission, hasAnyPermission, hasRole, hasAnyRole } = useAuth();
-  const location = useLocation();
+  const { isAuthenticated, loading, hasAllPermissions, user } = useAuth();
 
+  console.log('🔒 ProtectedRoute - isAuthenticated:', isAuthenticated);
+  console.log('🔒 ProtectedRoute - loading:', loading);
+  console.log('🔒 ProtectedRoute - user:', user);
+  console.log('🔒 ProtectedRoute - requiredPermissions:', requiredPermissions);
+  console.log('🔒 ProtectedRoute - requireAuthOnly:', requireAuthOnly);
+
+  // Mientras carga, muestra un loading
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        background: '#0f172a',
+        color: '#fff'
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            border: '3px solid rgba(255,255,255,0.1)',
+            borderTop: '3px solid #22c55e',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            margin: '0 auto 16px'
+          }} />
+          <p style={{ color: '#94a3b8' }}>Verificando acceso...</p>
+        </div>
+        <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}</style>
       </div>
     );
   }
 
+  // Si no está autenticado, redirige a login
   if (!isAuthenticated) {
-    return <Navigate to={redirectTo} state={{ from: location }} replace />;
+    console.log('🔒 Usuario no autenticado, redirigiendo a /login');
+    return <Navigate to="/login" replace />;
   }
 
-  // Verificar permisos requeridos (todos)
+  // Si solo requiere autenticación (sin permisos específicos)
+  if (requireAuthOnly) {
+    console.log('🔒 Solo requiere autenticación, acceso permitido');
+    return <>{children}</>;
+  }
+
+  // Si requiere permisos específicos
   if (requiredPermissions.length > 0) {
-    const hasAllRequired = requiredPermissions.every(p => hasPermission(p));
-    if (!hasAllRequired) {
-      return <Navigate to="/unauthorized" replace />;
+    const hasAccess = hasAllPermissions(requiredPermissions);
+    console.log('🔒 hasAllPermissions result:', hasAccess);
+    
+    if (!hasAccess) {
+      console.log('🚫 Usuario sin permisos suficientes, redirigiendo a /dashboard');
+      return <Navigate to="/dashboard" replace />;
     }
   }
 
-  // Verificar permisos requeridos (al menos uno)
-  if (requiredAnyPermissions.length > 0) {
-    const hasAnyRequired = requiredAnyPermissions.some(p => hasPermission(p));
-    if (!hasAnyRequired) {
-      return <Navigate to="/unauthorized" replace />;
-    }
-  }
-
-  // Verificar roles requeridos (todos)
-  if (requiredRoles.length > 0) {
-    const hasAllRoles = requiredRoles.every(r => hasRole(r));
-    if (!hasAllRoles) {
-      return <Navigate to="/unauthorized" replace />;
-    }
-  }
-
+  // Si todo está bien, muestra el contenido
+  console.log('✅ Acceso permitido');
   return <>{children}</>;
-};
-
-// Componente para verificar permisos en elementos UI
-interface PermissionGuardProps {
-  children: React.ReactNode;
-  permission?: string;
-  anyPermissions?: string[];
-  allPermissions?: string[];
-  fallback?: React.ReactNode;
-}
-
-export const PermissionGuard: React.FC<PermissionGuardProps> = ({
-  children,
-  permission,
-  anyPermissions = [],
-  allPermissions = [],
-  fallback = null,
-}) => {
-  const { hasPermission, hasAnyPermission, hasAllPermissions } = useAuth();
-
-  let hasAccess = true;
-
-  if (permission) {
-    hasAccess = hasPermission(permission);
-  }
-
-  if (anyPermissions.length > 0) {
-    hasAccess = hasAccess && hasAnyPermission(anyPermissions);
-  }
-
-  if (allPermissions.length > 0) {
-    hasAccess = hasAccess && hasAllPermissions(allPermissions);
-  }
-
-  return hasAccess ? <>{children}</> : <>{fallback}</>;
 };

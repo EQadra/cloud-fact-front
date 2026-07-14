@@ -33,7 +33,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // =============================================
-// HOOK - MOVER ANTES DEL PROVIDER
+// HOOK
 // =============================================
 
 export function useAuth(): AuthContextType {
@@ -45,7 +45,7 @@ export function useAuth(): AuthContextType {
 }
 
 // =============================================
-// PROVIDER
+// PROVIDER - VERSIÓN CORREGIDA
 // =============================================
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -54,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // ✅ LOGOUT - Definido primero
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
@@ -63,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     delete api.defaults.headers.common['Authorization'];
   }, []);
 
+  // ✅ REFRESH USER - Definido después de logout
   const refreshUser = useCallback(async () => {
     try {
       const response = await api.get('/auth/profile');
@@ -79,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [logout]);
 
+  // ✅ EFECTO DE CARGA DE SESIÓN - DEFINIDO DENTRO DEL PROVIDER
   useEffect(() => {
     const loadSession = async () => {
       try {
@@ -90,7 +93,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setToken(storedToken);
             setUser(JSON.parse(storedUser));
             api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-            await refreshUser();
+            // ✅ NO llamar a refreshUser aquí - solo restaurar la sesión
+            // Si quieres verificar el token, hazlo en segundo plano
           } catch (error) {
             console.error('Error al restaurar sesión:', error);
             logout();
@@ -104,8 +108,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     loadSession();
-  }, [refreshUser, logout]);
+  }, [logout]); // ✅ Solo depende de logout
 
+  // ✅ LOGIN
   const login = useCallback(async (email: string, password: string) => {
     setLoading(true);
     setError(null);
@@ -122,6 +127,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('access_token', access_token);
       localStorage.setItem('user', JSON.stringify(userData));
       api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+      
+      // ✅ Opcional: refrescar usuario después del login
+      // await refreshUser();
+      
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || error.message || 'Error al iniciar sesión';
       setError(errorMessage);
@@ -132,8 +141,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // ✅ CLEAR ERROR
   const clearError = useCallback(() => setError(null), []);
 
+  // ✅ PERMISSION CHECKS
   const hasPermission = useCallback((permission: string): boolean => {
     return !!user?.permissions?.includes(permission);
   }, [user]);
@@ -163,6 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isAuthenticated = useMemo(() => !!user && !!token, [user, token]);
 
+  // ✅ VALUE MEMOIZADO
   const value = useMemo<AuthContextType>(() => ({
     user,
     token,

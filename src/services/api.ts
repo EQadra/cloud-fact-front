@@ -1,8 +1,11 @@
 // src/services/api.ts
 import axios from 'axios';
-import type { AxiosError, InternalAxiosRequestConfig } from 'axios';
+import type { AxiosError } from 'axios';
 
+// ✅ URL DIRECTA
 const API_BASE_URL = 'http://localhost:3000';
+
+console.log('🔧 API Base URL:', API_BASE_URL);
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -23,7 +26,10 @@ api.interceptors.request.use(
     console.log(`🚀 [${config.method?.toUpperCase()}] ${config.baseURL}${config.url}`);
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    console.error('❌ Error en request:', error);
+    return Promise.reject(error);
+  }
 );
 
 // Interceptor para manejar errores
@@ -33,9 +39,16 @@ api.interceptors.response.use(
     return response;
   },
   (error: AxiosError) => {
+    console.error('❌ Error:', {
+      message: error.message,
+      status: error.response?.status,
+      data: error.response?.data,
+      url: error.config?.url,
+    });
+
     if (!error.response) {
-      console.error('❌ Error de red');
-      return Promise.reject(new Error('No se pudo conectar con el servidor'));
+      console.error('❌ No se puede conectar con el servidor en http://localhost:3000');
+      return Promise.reject(new Error('No se pudo conectar con el servidor. Verifica que el backend esté corriendo.'));
     }
     
     if (error.response.status === 401) {
@@ -43,18 +56,6 @@ api.interceptors.response.use(
       localStorage.removeItem('access_token');
       localStorage.removeItem('user');
       window.location.href = '/login';
-    }
-    
-    // Si es 404 en desarrollo, devolver datos mock
-    if (error.response.status === 404 && import.meta.env.DEV) {
-      console.warn(`📦 Endpoint no encontrado: ${error.config?.url} - Usando mock`);
-      return Promise.resolve({
-        data: { data: [] },
-        status: 200,
-        statusText: 'OK',
-        config: error.config,
-        headers: {},
-      });
     }
     
     return Promise.reject(error);

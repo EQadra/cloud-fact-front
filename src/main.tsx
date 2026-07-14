@@ -5,12 +5,13 @@ import { createRoot } from 'react-dom/client';
 
 import App from './App';
 import { AuthProvider } from './context/AuthContext';
-import { UsersProvider } from './context/UsersContext';
-import { RolesProvider } from './context/RolesContext';
-import { ProductionProvider } from './context/ProductionContext';
-import { SecurityProvider } from './context/SecurityContext';
-import { MedicalProvider } from './context/MedicalContext';
-import { CommercialProvider } from './context/CommercialContext';
+// import { UsersProvider } from './context/UsersContext';
+// import { RolesProvider } from './context/RolesContext';
+// import { ProductionProvider } from './context/ProductionContext';
+// import { SecurityProvider } from './context/SecurityContext';
+// ⚠️ Comentar los que no se usan en App.tsx
+// import { MedicalProvider } from './context/MedicalContext';
+// import { CommercialProvider } from './context/CommercialContext';
 
 const root = document.getElementById('root');
 
@@ -21,19 +22,19 @@ if (!root) {
 createRoot(root).render(
   <StrictMode>
     <AuthProvider>
-      <UsersProvider>
+      {/* <UsersProvider>
         <RolesProvider>
           <ProductionProvider>
-            <SecurityProvider>
-              <MedicalProvider>
-                <CommercialProvider>
+            <SecurityProvider> */}
+              {/* <MedicalProvider>
+                <CommercialProvider> */}
                   <App />
-                </CommercialProvider>
-              </MedicalProvider>
-            </SecurityProvider>
+                {/* </CommercialProvider>
+              </MedicalProvider> */}
+            {/* </SecurityProvider>
           </ProductionProvider>
         </RolesProvider>
-      </UsersProvider>
+      </UsersProvider> */}
     </AuthProvider>
   </StrictMode>
 );

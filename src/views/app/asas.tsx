@@ -51,10 +51,10 @@ const Dashboard = () => {
       title: 'Seguridad',
       icon: <FaShieldAlt />,
       items: [
-        { label: 'Control Vehículos', path: '/seguridad/access-car' },
-        { label: 'Control Acceso', path: '/seguridad/access-control' }, // ← ACTUALIZADO
-        { label: 'Visor Externo', path: '/seguridad/external-view' },
-        { label: 'Libro de Concurrencias', path: '/seguridad/incident-book' },
+             { label: 'Control Vehículos', path: '/seguridad/acceso-vehicular' }, // ✅ CORREGIDO
+        { label: 'Control Peatonal', path: '/seguridad/acceso-peatonal' },    // ✅ CORREGIDO
+        { label: 'Visor Externo', path: '/seguridad/external' },              // ✅ CORREGIDO
+        { label: 'Libro de Incidentes', path: '/seguridad/incidentes' },      // ✅ CORREGIDO
       ],
     },
 

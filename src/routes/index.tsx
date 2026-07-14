@@ -2,7 +2,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 
 import Login from '../views/auth/Login'
-import Dashboard from '../views/app/Dashboards'
+import Dashboard from '../views/app/Dashboard'
 import Users from '../views/auth/Users'
 import Roles from '../views/auth/Roles'
 import Permissions from '../views/auth/Permissions'

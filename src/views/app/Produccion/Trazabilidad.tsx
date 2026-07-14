@@ -1,14 +1,12 @@
 // src/views/app/Produccion/Trazabilidad.tsx
-// @ts-nocheck
-import { useState, useEffect, useMemo } from 'react';
-
-import { 
-  FaPlus, 
-  FaEdit, 
-  FaTrash, 
-  FaQrcode, 
-  FaEye, 
-  FaSearch, 
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import {
+  FaPlus,
+  FaEdit,
+  FaTrash,
+  FaQrcode,
+  FaEye,
+  FaSearch,
   FaTimes,
   FaSort,
   FaSortUp,
@@ -18,26 +16,41 @@ import {
   FaSpinner,
   FaSave,
   FaFileAlt,
-  // FaImage,
   FaUser,
   FaClock,
-  // FaUpload,
   FaStethoscope,
   FaTint,
   FaCut,
   FaLeaf,
   FaBug,
   FaFlask,
-  // FaTimesCircle,
   FaPlusCircle,
-  // FaCamera,
-  FaClipboardList
+  FaClipboardList,
+  FaCheckCircle,
+  FaExclamationTriangle,
+  FaInfoCircle,
+  FaThermometerHalf,
 } from 'react-icons/fa';
-import { produccionService } from '../../../services/produccionService';
-import type { Planta, PlantaInforme } from '../../../types/produccion';
+import { useProduction } from '../../../context/ProductionContext';
+import type { Planta, PlantaInforme, EtapaTrazabilidad } from '../../../types/produccion';
 
-// Componente Card para estadísticas
-const StatCard = ({ title, value, icon, color }: { title: string; value: string | number; icon?: React.ReactNode; color?: string }) => {
+// ============================================
+// COMPONENTE STAT CARD
+// ============================================
+
+const StatCard = ({ 
+  title, 
+  value, 
+  icon, 
+  color = 'rgba(59,130,246,0.1)',
+  subtitle 
+}: { 
+  title: string; 
+  value: string | number; 
+  icon?: React.ReactNode; 
+  color?: string;
+  subtitle?: string;
+}) => {
   return (
     <div style={{
       background: 'rgba(255,255,255,0.05)',
@@ -45,7 +58,8 @@ const StatCard = ({ title, value, icon, color }: { title: string; value: string 
       borderRadius: '16px',
       padding: '20px',
       backdropFilter: 'blur(10px)',
-      transition: 'all 0.3s ease'
+      transition: 'all 0.3s ease',
+      cursor: 'default'
     }}
     onMouseEnter={(e) => {
       e.currentTarget.style.transform = 'translateY(-2px)';
@@ -55,17 +69,22 @@ const StatCard = ({ title, value, icon, color }: { title: string; value: string 
       e.currentTarget.style.transform = 'translateY(0)';
       e.currentTarget.style.boxShadow = 'none';
     }}>
-      <div className="d-flex justify-content-between align-items-start">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <span style={{ color: '#94a3b8', fontSize: '14px' }}>{title}</span>
           <h3 style={{ margin: '8px 0 0', fontSize: '28px', fontWeight: '700' }}>{value}</h3>
+          {subtitle && (
+            <span style={{ color: '#64748b', fontSize: '12px', marginTop: '4px', display: 'block' }}>
+              {subtitle}
+            </span>
+          )}
         </div>
         {icon && (
-          <div style={{ 
-            background: color || 'rgba(59,130,246,0.1)', 
-            padding: '10px', 
+          <div style={{
+            background: color,
+            padding: '10px',
             borderRadius: '12px',
-            color: color ? color.replace('rgba', 'rgb').replace('0.1', '1') : '#3b82f6'
+            color: color.replace('rgba', '').replace('0.1', '').replace(/[(),]/g, '').trim() || '#3b82f6'
           }}>
             {icon}
           </div>
@@ -75,11 +94,334 @@ const StatCard = ({ title, value, icon, color }: { title: string; value: string 
   );
 };
 
-// Componente para mostrar informes
-const InformesList = ({ informes, onAddInforme, onDeleteInforme, loading }: { 
+// ============================================
+// COMPONENTE LISTA DE ETAPAS
+// ============================================
+
+const EtapasListComponent = ({ 
+  etapas, 
+  loading, 
+  onAddEtapa, 
+  onEditEtapa, 
+  onDeleteEtapa 
+}: { 
+  etapas: EtapaTrazabilidad[]; 
+  loading: boolean; 
+  onAddEtapa: () => void; 
+  onEditEtapa: (etapa: EtapaTrazabilidad) => void; 
+  onDeleteEtapa: (id: string) => void; 
+}) => {
+  const getEtapaIcon = (etapa: string) => {
+    const icons: Record<string, string> = {
+      'SIEMBRA': '🌱',
+      'GERMINACION': '🌿',
+      'CRECIMIENTO_VEGETATIVO': '🌳',
+      'PRE_FLORA': '🌸',
+      'FLORA': '🌺',
+      'COSECHA': '✂️',
+      'SECADO': '🌾',
+      'CURADO': '🏺',
+    };
+    return icons[etapa] || '📋';
+  };
+
+  const getEtapaLabel = (etapa: string): string => {
+    const labels: Record<string, string> = {
+      'SIEMBRA': 'Siembra',
+      'GERMINACION': 'Germinación',
+      'CRECIMIENTO_VEGETATIVO': 'Crecimiento Vegetativo',
+      'PRE_FLORA': 'Pre-Flora',
+      'FLORA': 'Flora',
+      'COSECHA': 'Cosecha',
+      'SECADO': 'Secado',
+      'CURADO': 'Curado',
+    };
+    return labels[etapa] || etapa;
+  };
+
+  const getEstadoStyle = (estado: string): React.CSSProperties => {
+    const styles: Record<string, React.CSSProperties> = {
+      'PENDIENTE': { background: 'rgba(251,191,36,0.15)', color: '#f59e0b' },
+      'EN_PROCESO': { background: 'rgba(59,130,246,0.15)', color: '#3b82f6' },
+      'COMPLETADO': { background: 'rgba(34,197,94,0.15)', color: '#22c55e' }
+    };
+    return styles[estado] || { background: 'rgba(148,163,184,0.15)', color: '#94a3b8' };
+  };
+
+  const getEstadoLabel = (estado: string): string => {
+    const labels: Record<string, string> = {
+      'PENDIENTE': 'Pendiente',
+      'EN_PROCESO': 'En Proceso',
+      'COMPLETADO': 'Completado'
+    };
+    return labels[estado] || estado;
+  };
+
+  const getEstadoIcon = (estado: string) => {
+    switch (estado) {
+      case 'COMPLETADO': return <FaCheckCircle color="#22c55e" size={14} />;
+      case 'EN_PROCESO': return <FaSpinner className="fa-spin" color="#3b82f6" size={14} />;
+      case 'PENDIENTE': return <FaClock color="#f59e0b" size={14} />;
+      default: return <FaCheckCircle color="#94a3b8" size={14} />;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '30px' }}>
+        <FaSpinner className="fa-spin" style={{ color: '#3b82f6', fontSize: '24px' }} />
+        <p style={{ color: '#94a3b8', marginTop: '12px' }}>Cargando etapas...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '16px',
+        flexWrap: 'wrap',
+        gap: '10px'
+      }}>
+        <h4 style={{ margin: 0, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <FaClipboardList /> Etapas de Trazabilidad ({etapas.length})
+        </h4>
+        <button
+          style={{
+            padding: '8px 16px',
+            borderRadius: '8px',
+            border: 'none',
+            background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+            color: '#fff',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '13px',
+            fontWeight: '600',
+            transition: 'all 0.3s ease'
+          }}
+          onClick={onAddEtapa}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-2px)';
+            e.currentTarget.style.boxShadow = '0 4px 15px rgba(139,92,246,0.3)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = 'none';
+          }}
+        >
+          <FaPlus size={12} /> Nueva Etapa
+        </button>
+      </div>
+
+      {etapas.length === 0 ? (
+        <div style={{
+          textAlign: 'center',
+          padding: '30px',
+          color: '#94a3b8',
+          border: '1px dashed rgba(255,255,255,0.08)',
+          borderRadius: '12px'
+        }}>
+          <FaClipboardList size={32} style={{ opacity: 0.3, marginBottom: '12px' }} />
+          <p>No hay etapas registradas para esta planta</p>
+          <button
+            style={{
+              marginTop: '8px',
+              padding: '6px 16px',
+              borderRadius: '6px',
+              border: '1px solid rgba(255,255,255,0.08)',
+              background: 'transparent',
+              color: '#94a3b8',
+              cursor: 'pointer',
+              fontSize: '13px',
+              transition: 'all 0.2s ease'
+            }}
+            onClick={onAddEtapa}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            <FaPlus size={10} style={{ marginRight: '4px' }} /> Agregar primera etapa
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {etapas.map((etapa) => (
+            <div
+              key={etapa.id}
+              style={{
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                borderRadius: '12px',
+                padding: '16px',
+                transition: 'all 0.2s ease',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
+              }}
+            >
+              <div style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: '4px',
+                background: getEstadoStyle(etapa.estado).color || '#94a3b8',
+                borderRadius: '4px 0 0 4px'
+              }} />
+
+              <div style={{ paddingLeft: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '20px' }}>
+                        {getEtapaIcon(etapa.etapa)}
+                      </span>
+                      <h5 style={{ margin: 0, fontSize: '15px', fontWeight: '600', color: '#e2e8f0' }}>
+                        {getEtapaLabel(etapa.etapa)}
+                      </h5>
+                      <span style={{
+                        padding: '2px 10px',
+                        borderRadius: '999px',
+                        fontSize: '10px',
+                        fontWeight: '600',
+                        ...getEstadoStyle(etapa.estado)
+                      }}>
+                        {getEstadoIcon(etapa.estado)} {getEstadoLabel(etapa.estado)}
+                      </span>
+                    </div>
+
+                    {etapa.observaciones && (
+                      <p style={{
+                        margin: '8px 0 0',
+                        fontSize: '13px',
+                        color: '#94a3b8',
+                        lineHeight: '1.5'
+                      }}>
+                        {etapa.observaciones}
+                      </p>
+                    )}
+
+                    <div style={{
+                      display: 'flex',
+                      gap: '16px',
+                      marginTop: '8px',
+                      fontSize: '12px',
+                      color: '#64748b',
+                      flexWrap: 'wrap'
+                    }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <FaCalendarAlt size={10} /> Inicio: {new Date(etapa.fecha_inicio).toLocaleDateString('es-ES')}
+                      </span>
+                      {etapa.fecha_fin && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <FaCalendarAlt size={10} /> Fin: {new Date(etapa.fecha_fin).toLocaleDateString('es-ES')}
+                        </span>
+                      )}
+                      {etapa.responsable_nombre && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <FaUser size={10} /> {etapa.responsable_nombre}
+                        </span>
+                      )}
+                      {etapa.temperatura !== undefined && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <FaThermometerHalf size={10} /> {etapa.temperatura}°C
+                        </span>
+                      )}
+                      {etapa.humedad !== undefined && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <FaTint size={10} /> {etapa.humedad}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <button
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#fbbf24',
+                        cursor: 'pointer',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        opacity: 0.5,
+                        transition: 'all 0.2s ease'
+                      }}
+                      onClick={() => onEditEtapa(etapa)}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.opacity = '1';
+                        e.currentTarget.style.background = 'rgba(251,191,36,0.1)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.opacity = '0.5';
+                        e.currentTarget.style.background = 'transparent';
+                      }}
+                      title="Editar etapa"
+                    >
+                      <FaEdit size={12} />
+                    </button>
+                    <button
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#ef4444',
+                        cursor: 'pointer',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        opacity: 0.5,
+                        transition: 'all 0.2s ease'
+                      }}
+                      onClick={() => onDeleteEtapa(etapa.id)}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.opacity = '1';
+                        e.currentTarget.style.background = 'rgba(239,68,68,0.1)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.opacity = '0.5';
+                        e.currentTarget.style.background = 'transparent';
+                      }}
+                      title="Eliminar etapa"
+                    >
+                      <FaTrash size={12} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================
+// COMPONENTE LISTA DE INFORMES
+// ============================================
+
+const InformesList = ({ 
+  informes, 
+  onAddInforme, 
+  onDeleteInforme, 
+  loading,
+  onEditInforme
+}: { 
   informes: PlantaInforme[]; 
   onAddInforme: () => void;
   onDeleteInforme: (id: string) => void;
+  onEditInforme?: (informe: PlantaInforme) => void;
   loading?: boolean;
 }) => {
   const getTipoIcon = (tipo: string) => {
@@ -89,7 +431,7 @@ const InformesList = ({ informes, onAddInforme, onDeleteInforme, loading }: {
       'RIEGO': <FaTint />,
       'FERTILIZACION': <FaFlask />,
       'PODA': <FaCut />,
-      'COSECHA': <FaCut />,
+      'COSECHA': <FaCut style={{ transform: 'rotate(180deg)' }} />,
       'CONTROL_PLAGAS': <FaBug />,
       'GENERAL': <FaClipboardList />
     };
@@ -139,9 +481,9 @@ const InformesList = ({ informes, onAddInforme, onDeleteInforme, loading }: {
 
   return (
     <div>
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: '16px',
         flexWrap: 'wrap',
@@ -180,8 +522,8 @@ const InformesList = ({ informes, onAddInforme, onDeleteInforme, loading }: {
       </div>
 
       {informes.length === 0 ? (
-        <div style={{ 
-          textAlign: 'center', 
+        <div style={{
+          textAlign: 'center',
           padding: '30px',
           color: '#94a3b8',
           border: '1px dashed rgba(255,255,255,0.08)',
@@ -198,9 +540,16 @@ const InformesList = ({ informes, onAddInforme, onDeleteInforme, loading }: {
               background: 'transparent',
               color: '#94a3b8',
               cursor: 'pointer',
-              fontSize: '13px'
+              fontSize: '13px',
+              transition: 'all 0.2s ease'
             }}
             onClick={onAddInforme}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
           >
             <FaPlus size={10} style={{ marginRight: '4px' }} /> Agregar primer informe
           </button>
@@ -227,10 +576,7 @@ const InformesList = ({ informes, onAddInforme, onDeleteInforme, loading }: {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ 
-                      color: getTipoColor(informe.tipo),
-                      fontSize: '14px'
-                    }}>
+                    <span style={{ color: getTipoColor(informe.tipo), fontSize: '14px' }}>
                       {getTipoIcon(informe.tipo)}
                     </span>
                     <h5 style={{ margin: 0, fontSize: '15px', fontWeight: '600', color: '#e2e8f0' }}>
@@ -257,11 +603,11 @@ const InformesList = ({ informes, onAddInforme, onDeleteInforme, loading }: {
                       {getEstadoLabel(informe.estado)}
                     </span>
                   </div>
-                  
+
                   {informe.descripcion && (
-                    <p style={{ 
-                      margin: '8px 0 0', 
-                      fontSize: '13px', 
+                    <p style={{
+                      margin: '8px 0 0',
+                      fontSize: '13px',
                       color: '#94a3b8',
                       lineHeight: '1.5'
                     }}>
@@ -270,14 +616,14 @@ const InformesList = ({ informes, onAddInforme, onDeleteInforme, loading }: {
                   )}
 
                   {informe.datos_medicion && Object.keys(informe.datos_medicion).length > 0 && (
-                    <div style={{ 
-                      display: 'flex', 
-                      gap: '16px', 
+                    <div style={{
+                      display: 'flex',
+                      gap: '16px',
                       marginTop: '8px',
                       flexWrap: 'wrap'
                     }}>
                       {Object.entries(informe.datos_medicion).map(([key, value]) => (
-                        <div key={key} style={{ 
+                        <div key={key} style={{
                           background: 'rgba(255,255,255,0.03)',
                           padding: '4px 12px',
                           borderRadius: '6px',
@@ -285,7 +631,7 @@ const InformesList = ({ informes, onAddInforme, onDeleteInforme, loading }: {
                         }}>
                           <span style={{ color: '#64748b' }}>{key}:</span>
                           <span style={{ color: '#e2e8f0', marginLeft: '4px', fontWeight: '500' }}>
-                            {typeof value === 'number' ? value.toFixed(2) : value}
+                            {typeof value === 'number' ? value.toFixed(2) : String(value)}
                           </span>
                         </div>
                       ))}
@@ -294,8 +640,8 @@ const InformesList = ({ informes, onAddInforme, onDeleteInforme, loading }: {
 
                   {informe.imagen_url && (
                     <div style={{ marginTop: '8px' }}>
-                      <img 
-                        src={informe.imagen_url} 
+                      <img
+                        src={informe.imagen_url}
                         alt={informe.titulo}
                         style={{
                           maxWidth: '100%',
@@ -308,9 +654,9 @@ const InformesList = ({ informes, onAddInforme, onDeleteInforme, loading }: {
                     </div>
                   )}
 
-                  <div style={{ 
-                    display: 'flex', 
-                    gap: '16px', 
+                  <div style={{
+                    display: 'flex',
+                    gap: '16px',
                     marginTop: '8px',
                     fontSize: '12px',
                     color: '#64748b',
@@ -330,30 +676,58 @@ const InformesList = ({ informes, onAddInforme, onDeleteInforme, loading }: {
                   </div>
                 </div>
 
-                <button
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: '#ef4444',
-                    cursor: 'pointer',
-                    padding: '4px 8px',
-                    borderRadius: '6px',
-                    opacity: 0.5,
-                    transition: 'all 0.2s ease'
-                  }}
-                  onClick={() => onDeleteInforme(informe.id)}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.opacity = '1';
-                    e.currentTarget.style.background = 'rgba(239,68,68,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.opacity = '0.5';
-                    e.currentTarget.style.background = 'transparent';
-                  }}
-                  title="Eliminar informe"
-                >
-                  <FaTrash size={12} />
-                </button>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  {onEditInforme && (
+                    <button
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#fbbf24',
+                        cursor: 'pointer',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        opacity: 0.5,
+                        transition: 'all 0.2s ease'
+                      }}
+                      onClick={() => onEditInforme(informe)}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.opacity = '1';
+                        e.currentTarget.style.background = 'rgba(251,191,36,0.1)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.opacity = '0.5';
+                        e.currentTarget.style.background = 'transparent';
+                      }}
+                      title="Editar informe"
+                    >
+                      <FaEdit size={12} />
+                    </button>
+                  )}
+                  <button
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#ef4444',
+                      cursor: 'pointer',
+                      padding: '4px 8px',
+                      borderRadius: '6px',
+                      opacity: 0.5,
+                      transition: 'all 0.2s ease'
+                    }}
+                    onClick={() => onDeleteInforme(informe.id)}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.opacity = '1';
+                      e.currentTarget.style.background = 'rgba(239,68,68,0.1)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.opacity = '0.5';
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                    title="Eliminar informe"
+                  >
+                    <FaTrash size={12} />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -363,101 +737,37 @@ const InformesList = ({ informes, onAddInforme, onDeleteInforme, loading }: {
   );
 };
 
-// Componente de formulario para informes
-const InformeForm = ({ 
-  onSave, 
-  onCancel, 
-  initialData,
-  loading 
-}: { 
-  onSave: (data: any) => void;
-  onCancel: () => void;
-  initialData?: any;
-  loading?: boolean;
-}) => {
-  const [formData, setFormData] = useState({
-    titulo: initialData?.titulo || '',
-    descripcion: initialData?.descripcion || '',
-    tipo: initialData?.tipo || 'GENERAL',
-    fecha_informe: initialData?.fecha_informe || new Date().toISOString().split('T')[0],
-    imagen_url: initialData?.imagen_url || '',
-    datos_medicion: initialData?.datos_medicion || {},
-    recomendaciones: initialData?.recomendaciones || '',
-    estado: initialData?.estado || 'BORRADOR'
-  });
+// ============================================
+// FORMULARIO DE ETAPA
+// ============================================
 
-  const [mediciones, setMediciones] = useState<{key: string; value: string}[]>(
-    initialData?.datos_medicion ? 
-      Object.entries(initialData.datos_medicion).map(([key, value]) => ({ key, value: String(value) })) :
-      [{ key: '', value: '' }]
-  );
+const EtapaForm = ({ onSave, onCancel, initialData, loading }: any) => {
+  const [formData, setFormData] = useState({
+    etapa: initialData?.etapa || 'SIEMBRA',
+    estado: initialData?.estado || 'PENDIENTE',
+    fecha_inicio: initialData?.fecha_inicio || new Date().toISOString().split('T')[0],
+    fecha_fin: initialData?.fecha_fin || '',
+    responsable_nombre: initialData?.responsable_nombre || '',
+    observaciones: initialData?.observaciones || '',
+    temperatura: initialData?.temperatura || '',
+    humedad: initialData?.humedad || '',
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const datosMedicion: Record<string, any> = {};
-    mediciones.forEach(m => {
-      if (m.key && m.value) {
-        const numValue = parseFloat(m.value);
-        datosMedicion[m.key] = isNaN(numValue) ? m.value : numValue;
-      }
-    });
     onSave({
       ...formData,
-      datos_medicion: datosMedicion
+      temperatura: formData.temperatura ? parseFloat(formData.temperatura) : undefined,
+      humedad: formData.humedad ? parseFloat(formData.humedad) : undefined,
     });
-  };
-
-  const addMedicion = () => {
-    setMediciones([...mediciones, { key: '', value: '' }]);
-  };
-
-  const removeMedicion = (index: number) => {
-    setMediciones(mediciones.filter((_, i) => i !== index));
-  };
-
-  const updateMedicion = (index: number, field: 'key' | 'value', value: string) => {
-    const newMediciones = [...mediciones];
-    newMediciones[index][field] = value;
-    setMediciones(newMediciones);
   };
 
   return (
     <form onSubmit={handleSubmit}>
-      <div style={{ marginBottom: '12px' }}>
-        <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
-          Título del informe *
-        </label>
-        <input
-          style={{
-            width: '100%',
-            padding: '10px 14px',
-            borderRadius: '8px',
-            border: '1px solid rgba(255,255,255,0.08)',
-            background: 'rgba(255,255,255,0.03)',
-            color: '#fff',
-            fontSize: '14px',
-            outline: 'none',
-            transition: 'all 0.2s ease'
-          }}
-          placeholder="Ej: Control de crecimiento - Semana 4"
-          value={formData.titulo}
-          onChange={(e) => setFormData({ ...formData, titulo: e.target.value })}
-          required
-          onFocus={(e) => {
-            e.currentTarget.style.borderColor = 'rgba(59,130,246,0.5)';
-            e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
-          }}
-          onBlur={(e) => {
-            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
-            e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
-          }}
-        />
-      </div>
-
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
         <div>
           <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
-            Tipo de informe
+            Etapa *
           </label>
           <select
             style={{
@@ -469,24 +779,55 @@ const InformeForm = ({
               color: '#fff',
               fontSize: '14px',
               outline: 'none',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              boxSizing: 'border-box'
             }}
-            value={formData.tipo}
-            onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
+            value={formData.etapa}
+            onChange={(e) => setFormData({ ...formData, etapa: e.target.value })}
+            required
           >
-            <option value="CRECIMIENTO">🌱 Crecimiento</option>
-            <option value="SALUD">🩺 Salud</option>
-            <option value="RIEGO">💧 Riego</option>
-            <option value="FERTILIZACION">🧪 Fertilización</option>
-            <option value="PODA">✂️ Poda</option>
-            <option value="COSECHA">🌾 Cosecha</option>
-            <option value="CONTROL_PLAGAS">🐛 Control de plagas</option>
-            <option value="GENERAL">📋 General</option>
+            <option value="SIEMBRA">🌱 Siembra</option>
+            <option value="GERMINACION">🌿 Germinación</option>
+            <option value="CRECIMIENTO_VEGETATIVO">🌳 Crecimiento Vegetativo</option>
+            <option value="PRE_FLORA">🌸 Pre-Flora</option>
+            <option value="FLORA">🌺 Flora</option>
+            <option value="COSECHA">✂️ Cosecha</option>
+            <option value="SECADO">🌾 Secado</option>
+            <option value="CURADO">🏺 Curado</option>
           </select>
         </div>
         <div>
           <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
-            Fecha del informe
+            Estado *
+          </label>
+          <select
+            style={{
+              width: '100%',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              border: '1px solid rgba(255,255,255,0.08)',
+              background: 'rgba(255,255,255,0.03)',
+              color: '#fff',
+              fontSize: '14px',
+              outline: 'none',
+              cursor: 'pointer',
+              boxSizing: 'border-box'
+            }}
+            value={formData.estado}
+            onChange={(e) => setFormData({ ...formData, estado: e.target.value })}
+            required
+          >
+            <option value="PENDIENTE">⏳ Pendiente</option>
+            <option value="EN_PROCESO">🔄 En Proceso</option>
+            <option value="COMPLETADO">✅ Completado</option>
+          </select>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+        <div>
+          <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
+            Fecha de inicio *
           </label>
           <input
             type="date"
@@ -499,42 +840,39 @@ const InformeForm = ({
               color: '#fff',
               fontSize: '14px',
               outline: 'none',
-              transition: 'all 0.2s ease'
+              boxSizing: 'border-box'
             }}
-            value={formData.fecha_informe}
-            onChange={(e) => setFormData({ ...formData, fecha_informe: e.target.value })}
+            value={formData.fecha_inicio}
+            onChange={(e) => setFormData({ ...formData, fecha_inicio: e.target.value })}
             required
+          />
+        </div>
+        <div>
+          <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
+            Fecha de fin (opcional)
+          </label>
+          <input
+            type="date"
+            style={{
+              width: '100%',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              border: '1px solid rgba(255,255,255,0.08)',
+              background: 'rgba(255,255,255,0.03)',
+              color: '#fff',
+              fontSize: '14px',
+              outline: 'none',
+              boxSizing: 'border-box'
+            }}
+            value={formData.fecha_fin}
+            onChange={(e) => setFormData({ ...formData, fecha_fin: e.target.value })}
           />
         </div>
       </div>
 
       <div style={{ marginBottom: '12px' }}>
         <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
-          Descripción
-        </label>
-        <textarea
-          style={{
-            width: '100%',
-            padding: '10px 14px',
-            borderRadius: '8px',
-            border: '1px solid rgba(255,255,255,0.08)',
-            background: 'rgba(255,255,255,0.03)',
-            color: '#fff',
-            fontSize: '14px',
-            outline: 'none',
-            minHeight: '60px',
-            resize: 'vertical',
-            fontFamily: 'inherit'
-          }}
-          placeholder="Describe los hallazgos del informe..."
-          value={formData.descripcion}
-          onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
-        />
-      </div>
-
-      <div style={{ marginBottom: '12px' }}>
-        <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
-          URL de imagen (opcional)
+          Responsable
         </label>
         <input
           style={{
@@ -545,89 +883,18 @@ const InformeForm = ({
             background: 'rgba(255,255,255,0.03)',
             color: '#fff',
             fontSize: '14px',
-            outline: 'none'
+            outline: 'none',
+            boxSizing: 'border-box'
           }}
-          placeholder="https://ejemplo.com/imagen.jpg"
-          value={formData.imagen_url}
-          onChange={(e) => setFormData({ ...formData, imagen_url: e.target.value })}
+          placeholder="Nombre del responsable"
+          value={formData.responsable_nombre}
+          onChange={(e) => setFormData({ ...formData, responsable_nombre: e.target.value })}
         />
       </div>
 
       <div style={{ marginBottom: '12px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', margin: 0 }}>
-            Datos de medición
-          </label>
-          <button
-            type="button"
-            style={{
-              background: 'transparent',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '6px',
-              color: '#94a3b8',
-              padding: '4px 12px',
-              cursor: 'pointer',
-              fontSize: '12px'
-            }}
-            onClick={addMedicion}
-          >
-            <FaPlus size={10} style={{ marginRight: '4px' }} /> Agregar
-          </button>
-        </div>
-        {mediciones.map((medicion, index) => (
-          <div key={index} style={{ display: 'flex', gap: '8px', marginBottom: '6px' }}>
-            <input
-              style={{
-                flex: 1,
-                padding: '8px 12px',
-                borderRadius: '6px',
-                border: '1px solid rgba(255,255,255,0.08)',
-                background: 'rgba(255,255,255,0.03)',
-                color: '#fff',
-                fontSize: '13px',
-                outline: 'none'
-              }}
-              placeholder="Ej: Altura"
-              value={medicion.key}
-              onChange={(e) => updateMedicion(index, 'key', e.target.value)}
-            />
-            <input
-              style={{
-                flex: 1,
-                padding: '8px 12px',
-                borderRadius: '6px',
-                border: '1px solid rgba(255,255,255,0.08)',
-                background: 'rgba(255,255,255,0.03)',
-                color: '#fff',
-                fontSize: '13px',
-                outline: 'none'
-              }}
-              placeholder="Ej: 45.5"
-              value={medicion.value}
-              onChange={(e) => updateMedicion(index, 'value', e.target.value)}
-            />
-            {mediciones.length > 1 && (
-              <button
-                type="button"
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#ef4444',
-                  cursor: 'pointer',
-                  padding: '0 8px'
-                }}
-                onClick={() => removeMedicion(index)}
-              >
-                <FaTimes size={12} />
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div style={{ marginBottom: '12px' }}>
         <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
-          Recomendaciones
+          Observaciones
         </label>
         <textarea
           style={{
@@ -641,37 +908,62 @@ const InformeForm = ({
             outline: 'none',
             minHeight: '50px',
             resize: 'vertical',
-            fontFamily: 'inherit'
+            fontFamily: 'inherit',
+            boxSizing: 'border-box'
           }}
-          placeholder="Recomendaciones basadas en el informe..."
-          value={formData.recomendaciones}
-          onChange={(e) => setFormData({ ...formData, recomendaciones: e.target.value })}
+          placeholder="Observaciones de la etapa..."
+          value={formData.observaciones}
+          onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })}
         />
       </div>
 
-      <div style={{ marginBottom: '16px' }}>
-        <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
-          Estado
-        </label>
-        <select
-          style={{
-            width: '100%',
-            padding: '10px 14px',
-            borderRadius: '8px',
-            border: '1px solid rgba(255,255,255,0.08)',
-            background: 'rgba(255,255,255,0.03)',
-            color: '#fff',
-            fontSize: '14px',
-            outline: 'none',
-            cursor: 'pointer'
-          }}
-          value={formData.estado}
-          onChange={(e) => setFormData({ ...formData, estado: e.target.value })}
-        >
-          <option value="BORRADOR">📝 Borrador</option>
-          <option value="PUBLICADO">✅ Publicado</option>
-          <option value="ARCHIVADO">📁 Archivado</option>
-        </select>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+        <div>
+          <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
+            Temperatura (°C)
+          </label>
+          <input
+            type="number"
+            step="0.1"
+            style={{
+              width: '100%',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              border: '1px solid rgba(255,255,255,0.08)',
+              background: 'rgba(255,255,255,0.03)',
+              color: '#fff',
+              fontSize: '14px',
+              outline: 'none',
+              boxSizing: 'border-box'
+            }}
+            placeholder="Ej: 24.5"
+            value={formData.temperatura}
+            onChange={(e) => setFormData({ ...formData, temperatura: e.target.value })}
+          />
+        </div>
+        <div>
+          <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
+            Humedad (%)
+          </label>
+          <input
+            type="number"
+            step="0.1"
+            style={{
+              width: '100%',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              border: '1px solid rgba(255,255,255,0.08)',
+              background: 'rgba(255,255,255,0.03)',
+              color: '#fff',
+              fontSize: '14px',
+              outline: 'none',
+              boxSizing: 'border-box'
+            }}
+            placeholder="Ej: 65"
+            value={formData.humedad}
+            onChange={(e) => setFormData({ ...formData, humedad: e.target.value })}
+          />
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: '12px' }}>
@@ -705,7 +997,7 @@ const InformeForm = ({
             padding: '10px',
             borderRadius: '8px',
             border: 'none',
-            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+            background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
             color: '#fff',
             fontWeight: '600',
             cursor: 'pointer',
@@ -719,7 +1011,7 @@ const InformeForm = ({
           onMouseEnter={(e) => {
             if (!loading) {
               e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 4px 15px rgba(59,130,246,0.4)';
+              e.currentTarget.style.boxShadow = '0 4px 15px rgba(139,92,246,0.4)';
             }
           }}
           onMouseLeave={(e) => {
@@ -728,30 +1020,62 @@ const InformeForm = ({
           }}
         >
           {loading ? <FaSpinner className="fa-spin" /> : <FaSave />}
-          Guardar Informe
+          Guardar Etapa
         </button>
       </div>
     </form>
   );
 };
 
+// ============================================
+// COMPONENTE PRINCIPAL TRAZABILIDAD
+// ============================================
+
 const Trazabilidad = () => {
-  const [plantas, setPlantas] = useState<Planta[]>([]);
-  const [loading, setLoading] = useState(true);
+  // ===== HOOKS =====
+  const {
+    plantas,
+    loading,
+    estadisticas,
+    informes,
+    etapas,
+    fetchPlantas,
+    createPlanta,
+    updatePlanta,
+    deletePlanta,
+    fetchInformes,
+    createInforme,
+    updateInforme,
+    deleteInforme,
+    fetchEtapas,
+    createEtapa,
+    updateEtapa,
+    deleteEtapa,
+    getEtapasByPlanta,
+    getProgresoEtapas,
+    error,
+    clearError,
+  } = useProduction();
+
+  // ===== ESTADOS LOCALES =====
   const [searchTerm, setSearchTerm] = useState('');
   const [filterTipo, setFilterTipo] = useState('');
   const [filterEstado, setFilterEstado] = useState('');
   const [sortField, setSortField] = useState<keyof Planta>('created_at');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-  
-  // Estados para modales
+
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalType, setModalType] = useState<'create' | 'edit' | 'view' | 'delete' | 'addInforme'>('create');
+  const [modalType, setModalType] = useState<'create' | 'edit' | 'view' | 'delete' | 'addInforme' | 'editInforme' | 'addEtapa' | 'editEtapa'>('create');
   const [selectedPlanta, setSelectedPlanta] = useState<Planta | null>(null);
-  const [informes, setInformes] = useState<PlantaInforme[]>([]);
   const [loadingInformes, setLoadingInformes] = useState(false);
+  const [loadingEtapas, setLoadingEtapas] = useState(false);
   const [editingInforme, setEditingInforme] = useState<PlantaInforme | null>(null);
-  
+  const [editingEtapa, setEditingEtapa] = useState<EtapaTrazabilidad | null>(null);
+
+  // useRef para evitar cargas múltiples
+  const isInitialLoadDone = useRef(false);
+  const isDetailsLoading = useRef(false);
+
   const [formData, setFormData] = useState<{
     nombre: string;
     codigo_qr: string;
@@ -759,43 +1083,64 @@ const Trazabilidad = () => {
     estado: 'ACTIVO' | 'FINALIZADO' | 'CANCELADO';
     lote: string;
     descripcion: string;
+    banco_procedencia: string;
+    fecha_germinacion: string;
+    fecha_clonacion: string;
   }>({
     nombre: '',
     codigo_qr: '',
     tipo: 'INDICA',
     estado: 'ACTIVO',
     lote: '',
-    descripcion: ''
+    descripcion: '',
+    banco_procedencia: '',
+    fecha_germinacion: '',
+    fecha_clonacion: '',
   });
-  // Cargar plantas
+
+  // ============================================
+  // EFECTOS
+  // ============================================
+
   useEffect(() => {
-    cargarPlantas();
+    console.log('🔄 [Trazabilidad] Montando componente...');
+    
+    if (!isInitialLoadDone.current) {
+      console.log('🔄 [Trazabilidad] Cargando datos iniciales...');
+      isInitialLoadDone.current = true;
+      fetchPlantas();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cargar informes cuando se selecciona una planta
   useEffect(() => {
-    if (selectedPlanta && (modalType === 'view' || modalType === 'edit')) {
-      cargarInformes(selectedPlanta.id);
+    if (selectedPlanta && modalType === 'view' && !isDetailsLoading.current) {
+      console.log(`🔄 [Trazabilidad] Cargando detalles de planta: ${selectedPlanta.id}`);
+      isDetailsLoading.current = true;
+      
+      const loadDetails = async () => {
+        try {
+          await cargarInformes(selectedPlanta.id);
+          await cargarEtapas(selectedPlanta.id);
+        } catch (error) {
+          console.error('Error cargando detalles:', error);
+        } finally {
+          isDetailsLoading.current = false;
+        }
+      };
+      loadDetails();
     }
-  }, [selectedPlanta, modalType]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPlanta?.id, modalType]);
 
-  const cargarPlantas = async () => {
-    try {
-      setLoading(true);
-      const data = await produccionService.obtenerPlantas();
-      setPlantas(data);
-    } catch (error) {
-      console.error('Error cargando plantas:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // ============================================
+  // FUNCIONES
+  // ============================================
 
   const cargarInformes = async (plantaId: string) => {
     try {
       setLoadingInformes(true);
-      const data = await produccionService.obtenerInformes(plantaId);
-      setInformes(data);
+      await fetchInformes(plantaId);
     } catch (error) {
       console.error('Error cargando informes:', error);
     } finally {
@@ -803,7 +1148,17 @@ const Trazabilidad = () => {
     }
   };
 
-  // Abrir modal de crear
+  const cargarEtapas = async (plantaId: string) => {
+    try {
+      setLoadingEtapas(true);
+      await fetchEtapas(plantaId);
+    } catch (error) {
+      console.error('Error cargando etapas:', error);
+    } finally {
+      setLoadingEtapas(false);
+    }
+  };
+
   const openCreate = () => {
     setModalType('create');
     setFormData({
@@ -812,14 +1167,15 @@ const Trazabilidad = () => {
       tipo: 'INDICA',
       estado: 'ACTIVO',
       lote: '',
-      descripcion: ''
+      descripcion: '',
+      banco_procedencia: '',
+      fecha_germinacion: '',
+      fecha_clonacion: '',
     });
     setSelectedPlanta(null);
-    setInformes([]);
     setIsModalOpen(true);
   };
 
-  // Abrir modal de editar
   const openEdit = (planta: Planta) => {
     setModalType('edit');
     setSelectedPlanta(planta);
@@ -829,99 +1185,169 @@ const Trazabilidad = () => {
       tipo: planta.tipo,
       estado: planta.estado,
       lote: planta.lote || '',
-      descripcion: planta.descripcion || ''
+      descripcion: planta.descripcion || '',
+      banco_procedencia: planta.banco_procedencia || '',
+      fecha_germinacion: planta.fecha_germinacion || '',
+      fecha_clonacion: planta.fecha_clonacion || '',
     });
     setIsModalOpen(true);
   };
 
-  // Abrir modal de ver
   const openView = (planta: Planta) => {
     setModalType('view');
     setSelectedPlanta(planta);
-    setInformes([]);
     setIsModalOpen(true);
   };
 
-  // Abrir modal de eliminar
   const openDelete = (planta: Planta) => {
     setModalType('delete');
     setSelectedPlanta(planta);
     setIsModalOpen(true);
   };
 
-  // Abrir modal de agregar informe
   const openAddInforme = () => {
     setModalType('addInforme');
     setEditingInforme(null);
     setIsModalOpen(true);
   };
 
-  // Guardar planta (crear o editar)
-  const handleSave = async () => {
+  const openEditInforme = (informe: PlantaInforme) => {
+    setModalType('editInforme');
+    setEditingInforme(informe);
+    setIsModalOpen(true);
+  };
+
+  const openAddEtapa = () => {
+    setModalType('addEtapa');
+    setEditingEtapa(null);
+    setIsModalOpen(true);
+  };
+
+  const openEditEtapa = (etapa: EtapaTrazabilidad) => {
+    setModalType('editEtapa');
+    setEditingEtapa(etapa);
+    setIsModalOpen(true);
+  };
+
+const handleSave = async () => {
+  try {
+    // ✅ Generar código QR automáticamente para nuevas plantas
+    const codigo_qr = `PLT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    
+    const data = {
+      nombre: formData.nombre,
+      codigo_qr: modalType === 'create' ? codigo_qr : formData.codigo_qr, // Solo generar en creación
+      tipo: formData.tipo,
+      lote: formData.lote || undefined,
+      descripcion: formData.descripcion || undefined,
+      banco_procedencia: formData.banco_procedencia || undefined,
+      fecha_germinacion: formData.fecha_germinacion || undefined,
+      fecha_clonacion: formData.fecha_clonacion || undefined,
+    };
+
+    console.log('📤 Enviando datos:', data);
+
+    if (modalType === 'create') {
+      await createPlanta(data);
+    } else if (modalType === 'edit' && selectedPlanta) {
+      // En edición, no enviamos codigo_qr para no cambiarlo
+      const { codigo_qr, ...editData } = data;
+      await updatePlanta(selectedPlanta.id, editData);
+    }
+    
+    await fetchPlantas();
+    setIsModalOpen(false);
+    setSelectedPlanta(null);
+  } catch (error) {
+    console.error('Error guardando planta:', error);
+    // Mostrar el error específico
+    if (error.response?.data?.message) {
+      toast.error(Array.isArray(error.response.data.message) 
+        ? error.response.data.message.join(', ') 
+        : error.response.data.message);
+    } else {
+      toast.error('Error al guardar la planta');
+    }
+  }
+};
+
+  const handleDelete = async () => {
+    if (!selectedPlanta) return;
     try {
-      if (modalType === 'create') {
-        await produccionService.crearPlanta(formData);
-      } else if (modalType === 'edit' && selectedPlanta) {
-        await produccionService.actualizarPlanta(selectedPlanta.id, formData);
-      }
-      await cargarPlantas();
+      await deletePlanta(selectedPlanta.id);
+      await fetchPlantas();
       setIsModalOpen(false);
       setSelectedPlanta(null);
     } catch (error) {
-      console.error('Error guardando planta:', error);
+      console.error('Error eliminando planta:', error);
     }
   };
 
-  // Guardar informe
   const handleSaveInforme = async (informeData: any) => {
     if (!selectedPlanta) return;
     try {
-      const newInforme = {
-        ...informeData,
-        id: editingInforme?.id || `inf_${Date.now()}`,
-        planta_id: selectedPlanta.id,
-        autor: 'Usuario Actual',
-        created_at: editingInforme?.created_at || new Date().toISOString()
-      };
-
       if (editingInforme) {
-        await produccionService.actualizarInforme(selectedPlanta.id, editingInforme.id, newInforme);
+        await updateInforme(selectedPlanta.id, editingInforme.id, informeData);
       } else {
-        await produccionService.crearInforme(selectedPlanta.id, newInforme);
+        await createInforme(selectedPlanta.id, {
+          titulo: informeData.titulo,
+          descripcion: informeData.descripcion || '',
+          tipo: informeData.tipo,
+          fecha_informe: informeData.fecha_informe,
+          imagen_url: informeData.imagen_url || '',
+          datos_medicion: informeData.datos_medicion || {},
+          recomendaciones: informeData.recomendaciones || '',
+          estado: informeData.estado || 'BORRADOR',
+        });
       }
-      
-      await cargarInformes(selectedPlanta.id);
+      await fetchInformes(selectedPlanta.id);
       setIsModalOpen(false);
       setEditingInforme(null);
-      // Volver a vista de detalles
       setModalType('view');
     } catch (error) {
       console.error('Error guardando informe:', error);
     }
   };
 
-  // Eliminar informe
   const handleDeleteInforme = async (informeId: string) => {
     if (!selectedPlanta) return;
     if (!confirm('¿Estás seguro de eliminar este informe?')) return;
     try {
-      await produccionService.eliminarInforme(selectedPlanta.id, informeId);
-      await cargarInformes(selectedPlanta.id);
+      await deleteInforme(selectedPlanta.id, informeId);
+      await fetchInformes(selectedPlanta.id);
     } catch (error) {
       console.error('Error eliminando informe:', error);
     }
   };
 
-  // Eliminar planta
-  const handleDelete = async () => {
+  const handleSaveEtapa = async (etapaData: any) => {
     if (!selectedPlanta) return;
     try {
-      await produccionService.eliminarPlanta(selectedPlanta.id);
-      await cargarPlantas();
+      if (editingEtapa) {
+        await updateEtapa(editingEtapa.id, etapaData);
+      } else {
+        await createEtapa({
+          ...etapaData,
+          planta_id: selectedPlanta.id,
+        });
+      }
+      await fetchEtapas(selectedPlanta.id);
       setIsModalOpen(false);
-      setSelectedPlanta(null);
+      setEditingEtapa(null);
+      setModalType('view');
     } catch (error) {
-      console.error('Error eliminando planta:', error);
+      console.error('Error guardando etapa:', error);
+    }
+  };
+
+  const handleDeleteEtapa = async (etapaId: string) => {
+    if (!selectedPlanta) return;
+    if (!confirm('¿Estás seguro de eliminar esta etapa?')) return;
+    try {
+      await deleteEtapa(etapaId);
+      await fetchEtapas(selectedPlanta.id);
+    } catch (error) {
+      console.error('Error eliminando etapa:', error);
     }
   };
 
@@ -933,6 +1359,16 @@ const Trazabilidad = () => {
       setSortDirection('asc');
     }
   };
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterTipo('');
+    setFilterEstado('');
+  };
+
+  // ============================================
+  // FILTRADO Y ORDENAMIENTO
+  // ============================================
 
   const filteredAndSortedPlantas = useMemo(() => {
     let result = [...plantas];
@@ -957,12 +1393,12 @@ const Trazabilidad = () => {
     result.sort((a, b) => {
       let aValue = a[sortField] || '';
       let bValue = b[sortField] || '';
-      
+
       if (typeof aValue === 'string') {
         aValue = aValue.toLowerCase();
         bValue = bValue.toLowerCase();
       }
-      
+
       if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
       if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
       return 0;
@@ -971,28 +1407,28 @@ const Trazabilidad = () => {
     return result;
   }, [plantas, searchTerm, filterTipo, filterEstado, sortField, sortDirection]);
 
-  // Estadísticas
-  const totalPlantas = plantas.length;
-  const activas = plantas.filter(p => p.estado === 'ACTIVO').length;
-  const finalizadas = plantas.filter(p => p.estado === 'FINALIZADO').length;
-  const indicas = plantas.filter(p => p.tipo === 'INDICA').length;
+  const hasActiveFilters = searchTerm || filterTipo || filterEstado;
 
-  const getTipoBadgeClass = (tipo: string): string => {
-    const classes: Record<string, string> = {
-      'INDICA': 'bg-success',
-      'SATIVA': 'bg-warning text-dark',
-      'HIBRIDA': 'bg-info'
+  // ============================================
+  // UTILIDADES DE ESTILOS
+  // ============================================
+
+  const getTipoBadgeStyle = (tipo: string): React.CSSProperties => {
+    const styles: Record<string, React.CSSProperties> = {
+      'INDICA': { background: 'rgba(34,197,94,0.15)', color: '#22c55e' },
+      'SATIVA': { background: 'rgba(251,191,36,0.15)', color: '#fbbf24' },
+      'HIBRIDA': { background: 'rgba(59,130,246,0.15)', color: '#3b82f6' }
     };
-    return classes[tipo] || 'bg-secondary';
+    return styles[tipo] || { background: 'rgba(148,163,184,0.15)', color: '#94a3b8' };
   };
 
-  const getEstadoBadgeClass = (estado: string): string => {
-    const classes: Record<string, string> = {
-      'ACTIVO': 'bg-success',
-      'FINALIZADO': 'bg-primary',
-      'CANCELADO': 'bg-danger'
+  const getEstadoBadgeStyle = (estado: string): React.CSSProperties => {
+    const styles: Record<string, React.CSSProperties> = {
+      'ACTIVO': { background: 'rgba(34,197,94,0.15)', color: '#22c55e' },
+      'FINALIZADO': { background: 'rgba(59,130,246,0.15)', color: '#3b82f6' },
+      'CANCELADO': { background: 'rgba(239,68,68,0.15)', color: '#ef4444' }
     };
-    return classes[estado] || 'bg-secondary';
+    return styles[estado] || { background: 'rgba(148,163,184,0.15)', color: '#94a3b8' };
   };
 
   const getTipoLabel = (tipo: string): string => {
@@ -1014,19 +1450,15 @@ const Trazabilidad = () => {
   };
 
   const getSortIcon = (field: keyof Planta) => {
-    if (sortField !== field) return <FaSort className="text-secondary opacity-50" size={12} />;
-    return sortDirection === 'asc' 
-      ? <FaSortUp className="text-primary" size={12} />
-      : <FaSortDown className="text-primary" size={12} />;
+    if (sortField !== field) return <FaSort style={{ color: '#64748b', opacity: 0.5 }} size={12} />;
+    return sortDirection === 'asc'
+      ? <FaSortUp style={{ color: '#3b82f6' }} size={12} />
+      : <FaSortDown style={{ color: '#3b82f6' }} size={12} />;
   };
 
-  const clearFilters = () => {
-    setSearchTerm('');
-    setFilterTipo('');
-    setFilterEstado('');
-  };
-
-  const hasActiveFilters = searchTerm || filterTipo || filterEstado;
+  // ============================================
+  // RENDER
+  // ============================================
 
   return (
     <div style={{
@@ -1035,7 +1467,7 @@ const Trazabilidad = () => {
       background: 'linear-gradient(135deg, #0f172a, #1e293b)',
       color: '#fff'
     }}>
-      {/* Header */}
+      {/* HEADER */}
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -1081,20 +1513,70 @@ const Trazabilidad = () => {
         </button>
       </div>
 
-      {/* Tarjetas de estadísticas */}
+      {/* ERROR */}
+      {error && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '12px 20px',
+          marginBottom: '20px',
+          borderRadius: '12px',
+          background: 'rgba(239,68,68,0.15)',
+          border: '1px solid rgba(239,68,68,0.3)',
+          color: '#ef4444'
+        }}>
+          <span><FaExclamationTriangle style={{ marginRight: '10px' }} /> {error}</span>
+          <button
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#ef4444',
+              fontSize: '24px',
+              cursor: 'pointer',
+              padding: '0 8px'
+            }}
+            onClick={clearError}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* ESTADÍSTICAS */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
         gap: '20px',
         marginBottom: '30px'
       }}>
-        <StatCard title="Total Plantas" value={totalPlantas} icon={<FaTag size={18} />} />
-        <StatCard title="Activas" value={activas} icon={<FaTag size={18} />} color="rgba(34,197,94,0.1)" />
-        <StatCard title="Finalizadas" value={finalizadas} icon={<FaTag size={18} />} color="rgba(59,130,246,0.1)" />
-        <StatCard title="Indica" value={indicas} icon={<FaTag size={18} />} color="rgba(139,92,246,0.1)" />
+        <StatCard
+          title="Total Plantas"
+          value={estadisticas?.total || 0}
+          icon={<FaTag size={18} />}
+        />
+        <StatCard
+          title="Activas"
+          value={estadisticas?.activas || 0}
+          icon={<FaCheckCircle size={18} />}
+          color="rgba(34,197,94,0.1)"
+          subtitle={`${estadisticas?.porTipo?.INDICA || 0} Indica, ${estadisticas?.porTipo?.SATIVA || 0} Sativa, ${estadisticas?.porTipo?.HIBRIDA || 0} Híbrida`}
+        />
+        <StatCard
+          title="Finalizadas"
+          value={estadisticas?.finalizadas || 0}
+          icon={<FaCheckCircle size={18} />}
+          color="rgba(59,130,246,0.1)"
+        />
+        <StatCard
+          title="Canceladas"
+          value={estadisticas?.canceladas || 0}
+          icon={<FaExclamationTriangle size={18} />}
+          color="rgba(239,68,68,0.1)"
+        />
       </div>
 
-      {/* Filtros */}
+      {/* FILTROS */}
       <div style={{
         display: 'flex',
         gap: '15px',
@@ -1212,7 +1694,7 @@ const Trazabilidad = () => {
         )}
       </div>
 
-      {/* Tabla */}
+      {/* TABLA */}
       <div style={{
         background: 'rgba(255,255,255,0.05)',
         border: '1px solid rgba(255,255,255,0.08)',
@@ -1419,8 +1901,7 @@ const Trazabilidad = () => {
                           borderRadius: '999px',
                           fontSize: '12px',
                           fontWeight: '600',
-                          background: getTipoBadgeClass(planta.tipo),
-                          color: ['bg-warning', 'bg-info'].includes(getTipoBadgeClass(planta.tipo)) ? '#000' : '#fff'
+                          ...getTipoBadgeStyle(planta.tipo)
                         }}>
                           {getTipoLabel(planta.tipo)}
                         </span>
@@ -1441,8 +1922,7 @@ const Trazabilidad = () => {
                           borderRadius: '999px',
                           fontSize: '12px',
                           fontWeight: '600',
-                          background: getEstadoBadgeClass(planta.estado),
-                          color: '#fff'
+                          ...getEstadoBadgeStyle(planta.estado)
                         }}>
                           {getEstadoLabel(planta.estado)}
                         </span>
@@ -1547,7 +2027,9 @@ const Trazabilidad = () => {
         )}
       </div>
 
-      {/* Modal */}
+      {/* ============================================ */}
+      {/* ===== MODAL ===== */}
+      {/* ============================================ */}
       {isModalOpen && (
         <div style={{
           position: 'fixed',
@@ -1559,10 +2041,18 @@ const Trazabilidad = () => {
           alignItems: 'center',
           zIndex: 999,
           padding: '20px'
+        }}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            setIsModalOpen(false);
+            setSelectedPlanta(null);
+            setEditingInforme(null);
+            setEditingEtapa(null);
+          }
         }}>
           <div style={{
             width: '100%',
-            maxWidth: modalType === 'view' ? '700px' : '550px',
+            maxWidth: modalType === 'view' ? '800px' : '550px',
             background: '#0f172a',
             border: '1px solid rgba(255,255,255,0.08)',
             borderRadius: '20px',
@@ -1583,6 +2073,9 @@ const Trazabilidad = () => {
                 {modalType === 'view' && '👁️ Detalle de Planta'}
                 {modalType === 'delete' && '⚠️ Eliminar Planta'}
                 {modalType === 'addInforme' && '📝 Nuevo Informe'}
+                {modalType === 'editInforme' && '✏️ Editar Informe'}
+                {modalType === 'addEtapa' && '📋 Nueva Etapa'}
+                {modalType === 'editEtapa' && '✏️ Editar Etapa'}
               </h2>
               <button
                 style={{
@@ -1601,8 +2094,8 @@ const Trazabilidad = () => {
                 onClick={() => {
                   setIsModalOpen(false);
                   setSelectedPlanta(null);
-                  setInformes([]);
                   setEditingInforme(null);
+                  setEditingEtapa(null);
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
@@ -1615,160 +2108,288 @@ const Trazabilidad = () => {
               </button>
             </div>
 
-            {/* Modal Content - View */}
+            {/* ===== MODAL VIEW ===== */}
             {modalType === 'view' && selectedPlanta && (
               <div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                {/* DEPURACIÓN - Ver qué datos llegan */}
+                {console.log('🔍 Detalle de planta:', selectedPlanta)}
+                {console.log('🔍 Informes:', informes)}
+                {console.log('🔍 Etapas:', getEtapasByPlanta(selectedPlanta.id))}
+                
+                <h3 style={{ color: '#fff', marginBottom: '16px' }}>
+                  🌱 {selectedPlanta.nombre}
+                </h3>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
                   <div>
-                    <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
-                      <FaQrcode size={12} style={{ marginRight: '4px' }} /> Código QR
-                    </label>
-                    <div style={{
-                      padding: '10px 14px',
-                      background: 'rgba(255,255,255,0.03)',
-                      borderRadius: '8px',
-                      fontFamily: 'monospace',
-                      fontSize: '13px',
-                      border: '1px solid rgba(255,255,255,0.06)'
-                    }}>
+                    <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>Código QR</p>
+                    <p style={{ color: '#fff', fontSize: '14px', fontFamily: 'monospace' }}>
                       {selectedPlanta.codigo_qr}
-                    </div>
+                    </p>
                   </div>
                   <div>
-                    <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
-                      <FaTag size={12} style={{ marginRight: '4px' }} /> Nombre
-                    </label>
-                    <div style={{
-                      padding: '10px 14px',
-                      background: 'rgba(255,255,255,0.03)',
-                      borderRadius: '8px',
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      border: '1px solid rgba(255,255,255,0.06)'
-                    }}>
-                      {selectedPlanta.nombre}
-                    </div>
+                    <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>Tipo</p>
+                    <p style={{ color: '#fff', fontSize: '14px' }}>
+                      {getTipoLabel(selectedPlanta.tipo)}
+                    </p>
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
                   <div>
-                    <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Tipo</label>
-                    <div style={{
-                      padding: '10px 14px',
-                      background: 'rgba(255,255,255,0.03)',
-                      borderRadius: '8px',
-                      border: '1px solid rgba(255,255,255,0.06)'
-                    }}>
-                      <span style={{
-                        padding: '4px 12px',
-                        borderRadius: '999px',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        background: getTipoBadgeClass(selectedPlanta.tipo),
-                        color: ['bg-warning', 'bg-info'].includes(getTipoBadgeClass(selectedPlanta.tipo)) ? '#000' : '#fff'
-                      }}>
-                        {getTipoLabel(selectedPlanta.tipo)}
-                      </span>
-                    </div>
+                    <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>Estado</p>
+                    <p style={{ color: '#fff', fontSize: '14px' }}>
+                      {getEstadoLabel(selectedPlanta.estado)}
+                    </p>
                   </div>
                   <div>
-                    <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Estado</label>
-                    <div style={{
-                      padding: '10px 14px',
-                      background: 'rgba(255,255,255,0.03)',
-                      borderRadius: '8px',
-                      border: '1px solid rgba(255,255,255,0.06)'
-                    }}>
-                      <span style={{
-                        padding: '4px 12px',
-                        borderRadius: '999px',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        background: getEstadoBadgeClass(selectedPlanta.estado),
-                        color: '#fff'
-                      }}>
-                        {getEstadoLabel(selectedPlanta.estado)}
-                      </span>
-                    </div>
+                    <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>Fecha creación</p>
+                    <p style={{ color: '#fff', fontSize: '14px' }}>
+                      {new Date(selectedPlanta.created_at).toLocaleDateString('es-ES')}
+                    </p>
                   </div>
                 </div>
-
-                {selectedPlanta.lote && (
-                  <div style={{ marginTop: '12px' }}>
-                    <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Lote</label>
-                    <div style={{
-                      padding: '10px 14px',
-                      background: 'rgba(255,255,255,0.03)',
-                      borderRadius: '8px',
-                      fontSize: '14px',
-                      border: '1px solid rgba(255,255,255,0.06)'
-                    }}>
-                      {selectedPlanta.lote}
-                    </div>
-                  </div>
-                )}
 
                 {selectedPlanta.descripcion && (
-                  <div style={{ marginTop: '12px' }}>
-                    <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Descripción</label>
-                    <div style={{
-                      padding: '10px 14px',
-                      background: 'rgba(255,255,255,0.03)',
-                      borderRadius: '8px',
-                      fontSize: '14px',
-                      border: '1px solid rgba(255,255,255,0.06)',
-                      minHeight: '40px',
-                      whiteSpace: 'pre-wrap'
-                    }}>
+                  <div style={{ marginBottom: '16px' }}>
+                    <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>Descripción</p>
+                    <p style={{ color: '#fff', fontSize: '14px' }}>
                       {selectedPlanta.descripcion}
-                    </div>
+                    </p>
                   </div>
                 )}
 
-                <div style={{ marginTop: '12px' }}>
-                  <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
-                    <FaCalendarAlt size={12} style={{ marginRight: '4px' }} /> Fecha de creación
-                  </label>
-                  <div style={{
-                    padding: '10px 14px',
-                    background: 'rgba(255,255,255,0.03)',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    border: '1px solid rgba(255,255,255,0.06)',
-                    color: '#94a3b8'
-                  }}>
-                    {new Date(selectedPlanta.created_at).toLocaleString('es-ES', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </div>
+                {/* ===== PROGRESO DE ETAPAS ===== */}
+                {(() => {
+                  const progreso = getProgresoEtapas(selectedPlanta.id);
+                  return (
+                    <div style={{ 
+                      marginTop: '16px', 
+                      padding: '16px', 
+                      background: 'rgba(255,255,255,0.03)', 
+                      borderRadius: '12px' 
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ color: '#94a3b8', fontSize: '13px' }}>
+                          <FaClipboardList style={{ marginRight: '6px' }} />
+                          Progreso de etapas
+                        </span>
+                        <span style={{ color: '#e2e8f0', fontSize: '14px', fontWeight: '600' }}>
+                          {progreso.completadas}/{progreso.total}
+                        </span>
+                      </div>
+                      <div style={{
+                        width: '100%',
+                        height: '8px',
+                        background: 'rgba(255,255,255,0.08)',
+                        borderRadius: '999px',
+                        overflow: 'hidden'
+                      }}>
+                        <div style={{
+                          width: `${progreso.porcentaje}%`,
+                          height: '100%',
+                          background: `linear-gradient(90deg, #3b82f6, ${progreso.porcentaje > 75 ? '#22c55e' : progreso.porcentaje > 50 ? '#f59e0b' : '#ef4444'})`,
+                          borderRadius: '999px',
+                          transition: 'width 0.5s ease'
+                        }} />
+                      </div>
+                      <div style={{ textAlign: 'center', marginTop: '4px', color: '#94a3b8', fontSize: '12px' }}>
+                        {progreso.porcentaje}% completado
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* ===== ETAPAS ===== */}
+                <div style={{ 
+                  marginTop: '20px', 
+                  borderTop: '1px solid rgba(255,255,255,0.06)', 
+                  paddingTop: '16px' 
+                }}>
+                  <h4 style={{ color: '#e2e8f0', margin: '0 0 12px 0' }}>
+                    📋 Etapas ({getEtapasByPlanta(selectedPlanta.id).length})
+                  </h4>
+                  
+                  {getEtapasByPlanta(selectedPlanta.id).length === 0 ? (
+                    <p style={{ color: '#94a3b8', fontSize: '14px' }}>
+                      No hay etapas registradas
+                    </p>
+                  ) : (
+                    getEtapasByPlanta(selectedPlanta.id).map((etapa) => (
+                      <div key={etapa.id} style={{
+                        background: 'rgba(255,255,255,0.03)',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        marginBottom: '8px',
+                        border: '1px solid rgba(255,255,255,0.06)'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: '#fff', fontWeight: '500' }}>
+                            {etapa.etapa}
+                          </span>
+                          <span style={{
+                            padding: '2px 10px',
+                            borderRadius: '999px',
+                            fontSize: '11px',
+                            background: etapa.estado === 'COMPLETADO' ? 'rgba(34,197,94,0.15)' : 'rgba(59,130,246,0.15)',
+                            color: etapa.estado === 'COMPLETADO' ? '#22c55e' : '#3b82f6'
+                          }}>
+                            {etapa.estado}
+                          </span>
+                        </div>
+                        {etapa.observaciones && (
+                          <p style={{ color: '#94a3b8', fontSize: '13px', margin: '4px 0 0' }}>
+                            {etapa.observaciones}
+                          </p>
+                        )}
+                      </div>
+                    ))
+                  )}
+                  
+                  <button
+                    style={{
+                      marginTop: '8px',
+                      padding: '6px 16px',
+                      borderRadius: '6px',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'transparent',
+                      color: '#94a3b8',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onClick={openAddEtapa}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                  >
+                    <FaPlus size={10} style={{ marginRight: '4px' }} /> Agregar etapa
+                  </button>
                 </div>
 
-                {/* Sección de Informes */}
-                <div style={{ marginTop: '24px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '20px' }}>
-                  <InformesList 
-                    informes={informes}
-                    onAddInforme={openAddInforme}
-                    onDeleteInforme={handleDeleteInforme}
-                    loading={loadingInformes}
-                  />
+                {/* ===== INFORMES ===== */}
+                <div style={{ 
+                  marginTop: '20px', 
+                  borderTop: '1px solid rgba(255,255,255,0.06)', 
+                  paddingTop: '16px' 
+                }}>
+                  <h4 style={{ color: '#e2e8f0', margin: '0 0 12px 0' }}>
+                    📋 Informes ({informes.length})
+                  </h4>
+                  
+                  {informes.length === 0 ? (
+                    <p style={{ color: '#94a3b8', fontSize: '14px' }}>
+                      No hay informes registrados
+                    </p>
+                  ) : (
+                    informes.map((informe) => (
+                      <div key={informe.id} style={{
+                        background: 'rgba(255,255,255,0.03)',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        marginBottom: '8px',
+                        border: '1px solid rgba(255,255,255,0.06)'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: '#fff', fontWeight: '500' }}>
+                            {informe.titulo}
+                          </span>
+                          <span style={{
+                            padding: '2px 10px',
+                            borderRadius: '999px',
+                            fontSize: '11px',
+                            background: 'rgba(59,130,246,0.15)',
+                            color: '#3b82f6'
+                          }}>
+                            {informe.tipo}
+                          </span>
+                        </div>
+                        {informe.descripcion && (
+                          <p style={{ color: '#94a3b8', fontSize: '13px', margin: '4px 0 0' }}>
+                            {informe.descripcion}
+                          </p>
+                        )}
+                      </div>
+                    ))
+                  )}
+                  
+                  <button
+                    style={{
+                      marginTop: '8px',
+                      padding: '6px 16px',
+                      borderRadius: '6px',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'transparent',
+                      color: '#94a3b8',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onClick={openAddInforme}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                  >
+                    <FaPlus size={10} style={{ marginRight: '4px' }} /> Agregar informe
+                  </button>
                 </div>
+
+                {/* ===== BOTÓN CERRAR ===== */}
+                <button
+                  style={{
+                    width: '100%',
+                    marginTop: '20px',
+                    padding: '12px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                    color: '#fff',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                  onClick={() => {
+                    setIsModalOpen(false);
+                    setSelectedPlanta(null);
+                    setInformes([]);
+                    setEtapas([]);
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 4px 15px rgba(59,130,246,0.4)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  <FaCheckCircle size={16} /> Cerrar
+                </button>
               </div>
             )}
 
-            {/* Modal Content - Delete */}
+            {/* ===== MODAL DELETE ===== */}
             {modalType === 'delete' && selectedPlanta && (
               <div>
-                <p style={{ fontSize: '16px', marginBottom: '8px' }}>
-                  ¿Estás seguro de eliminar la planta <strong>"{selectedPlanta.nombre}"</strong>?
-                </p>
-                <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '24px' }}>
-                  Esta acción eliminará todos los datos asociados a esta planta y no se puede deshacer.
-                </p>
+                <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                  <FaExclamationTriangle size={48} color="#ef4444" />
+                  <p style={{ fontSize: '18px', marginTop: '12px' }}>
+                    ¿Estás seguro de eliminar la planta <strong>"{selectedPlanta.nombre}"</strong>?
+                  </p>
+                  <p style={{ color: '#94a3b8', fontSize: '14px' }}>
+                    Esta acción eliminará todos los datos asociados a esta planta y no se puede deshacer.
+                  </p>
+                </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
                   <button
                     style={{
@@ -1824,7 +2445,7 @@ const Trazabilidad = () => {
               </div>
             )}
 
-            {/* Modal Content - Create/Edit */}
+            {/* ===== MODAL CREATE/EDIT PLANTA ===== */}
             {(modalType === 'create' || modalType === 'edit') && (
               <div>
                 <input
@@ -1838,11 +2459,13 @@ const Trazabilidad = () => {
                     color: '#fff',
                     fontSize: '14px',
                     outline: 'none',
-                    transition: 'all 0.2s ease'
+                    transition: 'all 0.2s ease',
+                    boxSizing: 'border-box'
                   }}
-                  placeholder="Nombre de la planta"
+                  placeholder="Nombre de la planta *"
                   value={formData.nombre}
                   onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+                  required
                   onFocus={(e) => {
                     e.currentTarget.style.borderColor = 'rgba(59,130,246,0.5)';
                     e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
@@ -1863,11 +2486,12 @@ const Trazabilidad = () => {
                     color: '#fff',
                     fontSize: '14px',
                     outline: 'none',
-                    transition: 'all 0.2s ease'
+                    transition: 'all 0.2s ease',
+                    boxSizing: 'border-box'
                   }}
-                  placeholder="Código QR"
-                  value={formData.codigo_qr}
-                  onChange={(e) => setFormData({ ...formData, codigo_qr: e.target.value })}
+                  placeholder="Banco de procedencia (opcional)"
+                  value={formData.banco_procedencia}
+                  onChange={(e) => setFormData({ ...formData, banco_procedencia: e.target.value })}
                   onFocus={(e) => {
                     e.currentTarget.style.borderColor = 'rgba(59,130,246,0.5)';
                     e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
@@ -1888,7 +2512,8 @@ const Trazabilidad = () => {
                     color: '#fff',
                     fontSize: '14px',
                     outline: 'none',
-                    transition: 'all 0.2s ease'
+                    transition: 'all 0.2s ease',
+                    boxSizing: 'border-box'
                   }}
                   placeholder="Lote (opcional)"
                   value={formData.lote}
@@ -1902,6 +2527,44 @@ const Trazabilidad = () => {
                     e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
                   }}
                 />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                  <input
+                    type="date"
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      borderRadius: '10px',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'rgba(255,255,255,0.03)',
+                      color: '#fff',
+                      fontSize: '14px',
+                      outline: 'none',
+                      transition: 'all 0.2s ease',
+                      boxSizing: 'border-box'
+                    }}
+                    placeholder="Fecha de germinación"
+                    value={formData.fecha_germinacion}
+                    onChange={(e) => setFormData({ ...formData, fecha_germinacion: e.target.value })}
+                  />
+                  <input
+                    type="date"
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      borderRadius: '10px',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'rgba(255,255,255,0.03)',
+                      color: '#fff',
+                      fontSize: '14px',
+                      outline: 'none',
+                      transition: 'all 0.2s ease',
+                      boxSizing: 'border-box'
+                    }}
+                    placeholder="Fecha de clonación"
+                    value={formData.fecha_clonacion}
+                    onChange={(e) => setFormData({ ...formData, fecha_clonacion: e.target.value })}
+                  />
+                </div>
                 <textarea
                   style={{
                     width: '100%',
@@ -1916,7 +2579,8 @@ const Trazabilidad = () => {
                     minHeight: '80px',
                     resize: 'vertical',
                     fontFamily: 'inherit',
-                    transition: 'all 0.2s ease'
+                    transition: 'all 0.2s ease',
+                    boxSizing: 'border-box'
                   }}
                   placeholder="Descripción (opcional)"
                   value={formData.descripcion}
@@ -1941,10 +2605,11 @@ const Trazabilidad = () => {
                       fontSize: '14px',
                       outline: 'none',
                       cursor: 'pointer',
-                      transition: 'all 0.2s ease'
+                      transition: 'all 0.2s ease',
+                      boxSizing: 'border-box'
                     }}
                     value={formData.tipo}
-                    onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, tipo: e.target.value as 'INDICA' | 'SATIVA' | 'HIBRIDA' })}
                     onFocus={(e) => {
                       e.currentTarget.style.borderColor = 'rgba(59,130,246,0.5)';
                       e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
@@ -1968,10 +2633,11 @@ const Trazabilidad = () => {
                       fontSize: '14px',
                       outline: 'none',
                       cursor: 'pointer',
-                      transition: 'all 0.2s ease'
+                      transition: 'all 0.2s ease',
+                      boxSizing: 'border-box'
                     }}
                     value={formData.estado}
-                    onChange={(e) => setFormData({ ...formData, estado: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, estado: e.target.value as 'ACTIVO' | 'FINALIZADO' | 'CANCELADO' })}
                     onFocus={(e) => {
                       e.currentTarget.style.borderColor = 'rgba(59,130,246,0.5)';
                       e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
@@ -2026,13 +2692,70 @@ const Trazabilidad = () => {
                       transition: 'all 0.3s ease'
                     }}
                     onClick={handleSave}
+                    disabled={loading}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = 'translateY(-2px)';
-                      e.currentTarget.style.boxShadow = '0 8px 25px rgba(59,130,246,0.4)';
+                      if (!loading) {
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.boxShadow = '0 8px 25px rgba(59,130,246,0.4)';
+                      }
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.transform = 'translateY(0)';
                       e.currentTarget.style.boxShadow = 'none';
+                    }}
+                  >
+                    {loading ? <FaSpinner className="fa-spin" /> : <FaSave />}
+                    Guardar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ===== MODAL INFORME ===== */}
+            {(modalType === 'addInforme' || modalType === 'editInforme') && (
+              <div>
+                <p style={{ color: '#94a3b8' }}>
+                  {modalType === 'addInforme' ? '📝 Nuevo Informe' : '✏️ Editar Informe'}
+                </p>
+                <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                  <button
+                    style={{
+                      flex: 1,
+                      padding: '12px',
+                      borderRadius: '10px',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'transparent',
+                      color: '#94a3b8',
+                      fontWeight: '600',
+                      cursor: 'pointer'
+                    }}
+                    onClick={() => {
+                      setIsModalOpen(false);
+                      setEditingInforme(null);
+                      if (selectedPlanta) {
+                        setModalType('view');
+                      }
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    style={{
+                      flex: 1,
+                      padding: '12px',
+                      borderRadius: '10px',
+                      border: 'none',
+                      background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                      color: '#fff',
+                      fontWeight: '600',
+                      cursor: 'pointer'
+                    }}
+                    onClick={() => {
+                      setIsModalOpen(false);
+                      setEditingInforme(null);
+                      if (selectedPlanta) {
+                        setModalType('view');
+                      }
                     }}
                   >
                     <FaSave /> Guardar
@@ -2041,19 +2764,19 @@ const Trazabilidad = () => {
               </div>
             )}
 
-            {/* Modal Content - Add Informe */}
-            {modalType === 'addInforme' && (
-              <InformeForm
-                onSave={handleSaveInforme}
+            {/* ===== MODAL ETAPA ===== */}
+            {(modalType === 'addEtapa' || modalType === 'editEtapa') && (
+              <EtapaForm
+                onSave={handleSaveEtapa}
                 onCancel={() => {
                   setIsModalOpen(false);
-                  setEditingInforme(null);
+                  setEditingEtapa(null);
                   if (selectedPlanta) {
                     setModalType('view');
                   }
                 }}
-                initialData={editingInforme || undefined}
-                loading={loadingInformes}
+                initialData={editingEtapa || undefined}
+                loading={loadingEtapas}
               />
             )}
           </div>

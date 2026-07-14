@@ -1,5 +1,5 @@
-// src/pages/Users.tsx
-import React, { useState, useEffect, useCallback } from 'react';
+// src/views/auth/Users.tsx
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   FaSearch,
   FaPlus,
@@ -53,8 +53,6 @@ export default function Users() {
     canEditUsers,
     canDeleteUsers,
     canToggleUserStatus,
-    isSuperAdmin,
-    isAdmin,
   } = usePermissions();
 
   // ===== ESTADOS LOCALES =====
@@ -74,6 +72,8 @@ export default function Users() {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterRole, setFilterRole] = useState<string>('all');
   const [showPassword, setShowPassword] = useState(false);
+  
+  const initialLoadDone = useRef(false);
 
   // ===== PERMISOS =====
   const canCreate = canCreateUsers();
@@ -81,46 +81,52 @@ export default function Users() {
   const canDelete = canDeleteUsers();
   const canView = canViewUsers();
   const canToggle = canToggleUserStatus();
-  const isAdminOrSuper = isAdmin() || isSuperAdmin();
 
-  // ===== EFECTOS =====
-  useEffect(() => {
-    if (canView) {
-      loadUsers();
-      loadStatistics();
-    }
-  }, []);
-
+  // =============================================
+  // FUNCIÓN PARA CARGAR USUARIOS
+  // =============================================
   const loadUsers = useCallback(async () => {
     if (!canView) return;
-    await fetchUsers({
-      page: pagination.page,
-      limit: pagination.limit,
-      search: search || undefined,
-      roleId: filterRole !== 'all' ? filterRole : undefined,
-      estado: filterStatus !== 'all' ? filterStatus === 'active' : undefined,
-    });
-  }, [canView, fetchUsers, pagination.page, pagination.limit, search, filterRole, filterStatus]);
-
-  const loadStatistics = useCallback(async () => {
-    if (!canView) return;
     try {
-      const stats = await getUserStatistics();
-      setStatistics(stats);
+      await fetchUsers({
+        page: 1,
+        limit: 10,
+        search: search || undefined,
+        roleId: filterRole !== 'all' ? filterRole : undefined,
+        estado: filterStatus !== 'all' ? filterStatus === 'active' : undefined,
+      });
     } catch (error) {
-      console.error('Error loading statistics:', error);
+      console.error('Error loading users:', error);
     }
-  }, [canView, getUserStatistics]);
+  }, [canView, fetchUsers, search, filterRole, filterStatus]);
 
-  // ===== MANEJADORES DE FILTROS =====
+  // =============================================
+  // CARGA INICIAL - UNA SOLA VEZ
+  // =============================================
   useEffect(() => {
-    const delayDebounce = setTimeout(() => {
+    if (canView && !initialLoadDone.current) {
+      initialLoadDone.current = true;
+      loadUsers();
+      getUserStatistics().then(setStatistics).catch(console.error);
+    }
+  }, [canView, loadUsers, getUserStatistics]);
+
+  // =============================================
+  // FILTROS CON DEBOUNCE
+  // =============================================
+  useEffect(() => {
+    if (!canView || !initialLoadDone.current) return;
+    
+    const timer = setTimeout(() => {
       loadUsers();
     }, 500);
-    return () => clearTimeout(delayDebounce);
-  }, [search, filterStatus, filterRole, loadUsers]);
+    
+    return () => clearTimeout(timer);
+  }, [search, filterStatus, filterRole, canView, loadUsers]);
 
-  // ===== MANEJADORES DE MODAL =====
+  // =============================================
+  // MANEJADORES DE MODAL
+  // =============================================
   const openCreate = () => {
     setModalType('create');
     setSelectedUserId(null);
@@ -180,7 +186,9 @@ export default function Users() {
     clearSelectedUser();
   };
 
-  // ===== MANEJADORES DE CRUD =====
+  // =============================================
+  // MANEJADORES DE CRUD
+  // =============================================
   const handleSave = async () => {
     try {
       if (modalType === 'create') {
@@ -211,7 +219,8 @@ export default function Users() {
       }
       closeModal();
       await loadUsers();
-      await loadStatistics();
+      const stats = await getUserStatistics();
+      setStatistics(stats);
     } catch (error: any) {
       console.error('Error saving user:', error);
       alert(error.response?.data?.message || 'Error al guardar el usuario');
@@ -224,7 +233,8 @@ export default function Users() {
       await deleteUser(selectedUserId);
       closeModal();
       await loadUsers();
-      await loadStatistics();
+      const stats = await getUserStatistics();
+      setStatistics(stats);
     } catch (error: any) {
       console.error('Error deleting user:', error);
       alert(error.response?.data?.message || 'Error al eliminar el usuario');
@@ -236,7 +246,8 @@ export default function Users() {
     try {
       await toggleUserStatus(id);
       await loadUsers();
-      await loadStatistics();
+      const stats = await getUserStatistics();
+      setStatistics(stats);
     } catch (error: any) {
       console.error('Error toggling user status:', error);
       alert(error.response?.data?.message || 'Error al cambiar el estado del usuario');
@@ -406,7 +417,7 @@ export default function Users() {
                     <td style={styles.td}>
                       <div style={styles.userInfo}>
                         <div style={styles.userAvatar}>
-                          {user.nombre.charAt(0).toUpperCase()}
+                          {user.nombre?.charAt(0)?.toUpperCase() || 'U'}
                         </div>
                         <div>
                           <div style={styles.userName}>{user.nombre}</div>
@@ -567,7 +578,7 @@ export default function Users() {
                 </div>
                 <div style={styles.viewDetails}>
                   <div style={styles.viewAvatar}>
-                    {selectedUser.nombre.charAt(0).toUpperCase()}
+                    {selectedUser.nombre?.charAt(0)?.toUpperCase() || 'U'}
                   </div>
                   <div style={styles.viewRow}>
                     <strong>Nombre completo:</strong>
@@ -603,14 +614,6 @@ export default function Users() {
                       {selectedUser.createdAt
                         ? new Date(selectedUser.createdAt).toLocaleString('es-PE')
                         : 'N/A'}
-                    </span>
-                  </div>
-                  <div style={styles.viewRow}>
-                    <strong>Último acceso:</strong>
-                    <span>
-                      {selectedUser.ultimoAcceso
-                        ? new Date(selectedUser.ultimoAcceso).toLocaleString('es-PE')
-                        : 'Nunca'}
                     </span>
                   </div>
                 </div>
@@ -798,7 +801,7 @@ export default function Users() {
 }
 
 // =============================================
-// COMPONENTES SECUNDARIOS
+// COMPONENTE CARD
 // =============================================
 
 function Card({ icon, title, value, color }: { icon: React.ReactNode; title: string; value: string; color: string }) {
