@@ -21,12 +21,14 @@ export default function PermissionsByRole() {
     clearError: clearRolesError,
   } = useRoles();
 
+  // ✅ CORREGIDO: Desestructurar error y clearError del contexto de permisos
   const {
     permissions,
     loading: permissionsLoading,
     fetchPermissions,
     groupPermissionsByModule,
-    clearError: clearPermissionsError,
+    error: permissionsError,        // ✅ Ahora sí está definido
+    clearError: clearPermissionsError, // ✅ Ahora sí está definido
   } = usePermissionsContext();
 
   const { canEditRoles } = usePermissions();
@@ -72,7 +74,6 @@ export default function PermissionsByRole() {
       const loadPermissions = async () => {
         try {
           const perms = await fetchRolePermissions(selectedRoleId);
-          // Guardar en el estado local como array de IDs
           const permIds = perms.map(p => p.permissionId);
           setLocalPermissions(prev => ({
             ...prev,
@@ -97,7 +98,7 @@ export default function PermissionsByRole() {
   };
 
   // =============================================
-  // TOGGLE PERMISO (solo local, sin guardar aún)
+  // TOGGLE PERMISO
   // =============================================
   const togglePermission = (permissionId: string) => {
     if (!selectedRoleId || !canEdit) return;
@@ -112,7 +113,6 @@ export default function PermissionsByRole() {
         : [...current, permissionId],
     });
 
-    // Resetear mensajes
     setSaveSuccess(false);
     setSaveError(null);
   };
@@ -129,24 +129,19 @@ export default function PermissionsByRole() {
 
     try {
       const currentPerms = localPermissions[selectedRoleId] || [];
-      // Obtener permisos actuales del backend
       const backendPerms = rolePermissions.map(p => p.permissionId);
 
-      // Determinar qué permisos agregar y cuáles quitar
       const toAdd = currentPerms.filter(id => !backendPerms.includes(id));
       const toRemove = backendPerms.filter(id => !currentPerms.includes(id));
 
-      // Asignar permisos nuevos (si hay)
       if (toAdd.length > 0) {
         await assignPermissionsToRole(selectedRoleId, toAdd);
       }
 
-      // Remover permisos (si hay)
       for (const permId of toRemove) {
         await removePermissionFromRole(selectedRoleId, permId);
       }
 
-      // Recargar permisos del rol
       await fetchRolePermissions(selectedRoleId);
 
       setSaveSuccess(true);
@@ -250,16 +245,21 @@ export default function PermissionsByRole() {
         </div>
       )}
 
-      {(rolesError || permissionsError) && (
+      {/* ✅ Error del contexto de roles */}
+      {rolesError && (
         <div style={styles.errorBanner}>
-          <span>{rolesError || permissionsError}</span>
-          <button
-            style={styles.errorClose}
-            onClick={() => {
-              clearRolesError();
-              clearPermissionsError();
-            }}
-          >
+          <span>{rolesError}</span>
+          <button style={styles.errorClose} onClick={clearRolesError}>
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* ✅ Error del contexto de permisos (CORREGIDO) */}
+      {permissionsError && (
+        <div style={styles.errorBanner}>
+          <span>{permissionsError}</span>
+          <button style={styles.errorClose} onClick={clearPermissionsError}>
             ×
           </button>
         </div>

@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { produccionService } from '../services/produccionService';
+import { generateLotCode, generateLotCodeWithPrefix, isValidLotCode } from '../utils/qrGenerator';
 import type {
   Planta,
   PlantaInforme,
@@ -49,6 +50,13 @@ interface ProductionContextType {
   fetchPlantasPorEstado: (estado: EstadoPlanta) => Promise<Planta[]>;
   fetchPlantasPorTipo: (tipo: TipoPlanta) => Promise<Planta[]>;
   fetchEstadisticas: () => Promise<void>;
+  
+  // 🔥 QR CODE
+  generarCodigoQR: () => string;
+  generarCodigoQRConPrefijo: (prefix: string) => string;
+  validarCodigoQR: (codigo: string) => boolean;
+  regenerarCodigoQR: (plantaId: string) => Promise<string>;
+  validarCodigoQRUnico: (codigo: string) => Promise<boolean>;
   
   // Informes
   fetchInformes: (plantaId: string) => Promise<PlantaInforme[]>;
@@ -147,17 +155,70 @@ export const ProductionProvider: React.FC<{ children: ReactNode }> = ({ children
   }, []);
 
   // ============================================
+  // 🔥 QR CODE - FUNCIONES DE GENERACIÓN
+  // ============================================
+
+  const generarCodigoQR = useCallback((): string => {
+    return generateLotCode();
+  }, []);
+
+  const generarCodigoQRConPrefijo = useCallback((prefix: string): string => {
+    return generateLotCodeWithPrefix(prefix);
+  }, []);
+
+  const validarCodigoQR = useCallback((codigo: string): boolean => {
+    return isValidLotCode(codigo);
+  }, []);
+
+  const regenerarCodigoQR = useCallback(async (plantaId: string): Promise<string> => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const nuevoCodigo = generateLotCodeWithPrefix('PLT');
+      
+      await produccionService.actualizarPlanta(plantaId, {
+        codigo_qr: nuevoCodigo,
+      });
+      
+      setPlantas(prev => prev.map(p => 
+        p.id === plantaId ? { ...p, codigo_qr: nuevoCodigo } : p
+      ));
+      
+      if (plantaSeleccionada?.id === plantaId) {
+        setPlantaSeleccionada({ ...plantaSeleccionada, codigo_qr: nuevoCodigo });
+      }
+      
+      console.log('✅ Código QR regenerado:', nuevoCodigo);
+      return nuevoCodigo;
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Error al regenerar el código QR');
+      console.error('Error regenerando QR:', err);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [plantaSeleccionada]);
+
+  const validarCodigoQRUnico = useCallback(async (codigo: string): Promise<boolean> => {
+    try {
+      await produccionService.obtenerPlantaPorCodigo(codigo);
+      return false;
+    } catch (error) {
+      return true;
+    }
+  }, []);
+
+  // ============================================
   // ✅ PLANTAS - CON VERIFICACIÓN DE AUTENTICACIÓN
   // ============================================
 
   const fetchPlantas = useCallback(async () => {
-    // ✅ No cargar si no está autenticado
     if (!isAuthenticated || !token) {
       console.log('⏳ [fetchPlantas] Usuario no autenticado, omitiendo carga...');
       return;
     }
     
-    // ✅ Evitar ejecución concurrente
     if (isFetching.current) {
       console.log('⏳ [fetchPlantas] Ya hay una carga en progreso, omitiendo...');
       return;
@@ -187,7 +248,6 @@ export const ProductionProvider: React.FC<{ children: ReactNode }> = ({ children
       setEstadisticas({ total, activas, finalizadas, canceladas, porTipo });
       initialLoadDone.current = true;
     } catch (err: any) {
-      // ✅ Si es error 401, no mostrar como error grave
       if (err.response?.status === 401) {
         console.log('🔒 [fetchPlantas] No autorizado, esperando autenticación...');
         setError(null);
@@ -199,10 +259,10 @@ export const ProductionProvider: React.FC<{ children: ReactNode }> = ({ children
       setLoading(false);
       isFetching.current = false;
     }
-  }, [isAuthenticated, token]); // ✅ Depende de autenticación
+  }, [isAuthenticated, token]);
 
   // ============================================
-  // ✅ EFECTO CORREGIDO - CARGA CUANDO EL USUARIO SE AUTENTICA
+  // ✅ EFECTO - CARGA CUANDO EL USUARIO SE AUTENTICA
   // ============================================
 
   useEffect(() => {
@@ -211,22 +271,18 @@ export const ProductionProvider: React.FC<{ children: ReactNode }> = ({ children
     console.log(`🔄 [ProductionContext] token: ${token ? '✅ Si' : '❌ No'}`);
     console.log(`🔄 [ProductionContext] initialLoadDone: ${initialLoadDone.current}`);
     
-    // ✅ Solo cargar si está autenticado y no se ha cargado antes
     if (isAuthenticated && token && !initialLoadDone.current && !isFetching.current) {
       console.log('🔄 [ProductionContext] Usuario autenticado, cargando datos...');
       fetchPlantas();
     }
     
-    // ✅ Si no está autenticado, limpiar datos
     if (!isAuthenticated && initialLoadDone.current) {
       console.log('🔄 [ProductionContext] Usuario desautenticado, limpiando datos...');
       setPlantas([]);
       setEstadisticas(null);
       initialLoadDone.current = false;
     }
-    
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, token]); // ✅ Solo se ejecuta cuando cambia la autenticación
+  }, [isAuthenticated, token, fetchPlantas]);
 
   // ============================================
   // RESTO DE FUNCIONES
@@ -252,6 +308,15 @@ export const ProductionProvider: React.FC<{ children: ReactNode }> = ({ children
     try {
       setLoading(true);
       setError(null);
+      
+      if (!data.codigo_qr) {
+        data.codigo_qr = generateLotCode();
+        console.log('📦 Código QR generado automáticamente:', data.codigo_qr);
+      }
+      
+      if (!isValidLotCode(data.codigo_qr)) {
+        console.warn('⚠️ El código QR no tiene el formato estándar:', data.codigo_qr);
+      }
       
       const nuevaPlanta = await produccionService.crearPlanta({
         ...data,
@@ -332,6 +397,10 @@ export const ProductionProvider: React.FC<{ children: ReactNode }> = ({ children
     }
   }, []);
 
+  // ============================================
+  // 📋 INFORMES
+  // ============================================
+
   const fetchInformes = useCallback(async (plantaId: string): Promise<PlantaInforme[]> => {
     try {
       setLoading(true);
@@ -353,16 +422,18 @@ export const ProductionProvider: React.FC<{ children: ReactNode }> = ({ children
       setLoading(true);
       setError(null);
       
-      const nuevoInforme: PlantaInforme = {
-        id: `inf_${Date.now()}`,
-        planta_id: plantaId,
-        ...data,
-        autor: user?.nombre || 'Usuario',
-        created_at: new Date().toISOString(),
+      const payload = {
+        titulo: data.titulo,
+        descripcion: data.descripcion || '',
+        tipo: data.tipo || 'GENERAL',
+        fecha_informe: data.fecha_informe || new Date().toISOString(),
+        imagen_url: data.imagen_url || '',
+        datos_medicion: data.datos_medicion || {},
+        recomendaciones: data.recomendaciones || '',
         estado: data.estado || 'BORRADOR',
       };
       
-      const resultado = await produccionService.crearInforme(plantaId, nuevoInforme);
+      const resultado = await produccionService.crearInforme(plantaId, payload);
       setInformes(prev => [resultado, ...prev]);
       return resultado;
     } catch (err: any) {
@@ -372,7 +443,7 @@ export const ProductionProvider: React.FC<{ children: ReactNode }> = ({ children
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, []);
 
   const updateInforme = useCallback(async (plantaId: string, informeId: string, data: Partial<PlantaInforme>): Promise<PlantaInforme> => {
     try {
@@ -404,6 +475,10 @@ export const ProductionProvider: React.FC<{ children: ReactNode }> = ({ children
       setLoading(false);
     }
   }, []);
+
+  // ============================================
+  // 📋 ETAPAS
+  // ============================================
 
   const fetchEtapas = useCallback(async (plantaId: string): Promise<EtapaTrazabilidad[]> => {
     try {
@@ -487,6 +562,10 @@ export const ProductionProvider: React.FC<{ children: ReactNode }> = ({ children
     return { completadas, total, porcentaje };
   }, [etapas]);
 
+  // ============================================
+  // REPORTES COMBINADOS
+  // ============================================
+
   const getPlantaConInformes = useCallback(async (id: string): Promise<PlantaConInformes> => {
     try {
       const data = await produccionService.obtenerPlanta(id);
@@ -528,6 +607,12 @@ export const ProductionProvider: React.FC<{ children: ReactNode }> = ({ children
     fetchPlantasPorEstado,
     fetchPlantasPorTipo,
     fetchEstadisticas,
+    // 🔥 QR CODE
+    generarCodigoQR,
+    generarCodigoQRConPrefijo,
+    validarCodigoQR,
+    regenerarCodigoQR,
+    validarCodigoQRUnico,
     fetchInformes,
     createInforme,
     updateInforme,

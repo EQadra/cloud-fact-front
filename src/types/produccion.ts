@@ -1,7 +1,7 @@
 // src/types/produccion.ts
 
 // ============================================
-// TIPOS PRINCIPALES - PLANTAS
+// TIPOS PRINCIPALES - PLANTAS (LOTS)
 // ============================================
 
 export interface Planta {
@@ -60,7 +60,7 @@ export interface PlantaInforme {
   id: string;
   planta_id: string;
   titulo: string;
-  descripcion?: string;
+  descripcion: string;
   tipo: 'CRECIMIENTO' | 'SALUD' | 'RIEGO' | 'FERTILIZACION' | 'PODA' | 'COSECHA' | 'CONTROL_PLAGAS' | 'GENERAL';
   fecha_informe: string;
   autor?: string;
@@ -95,16 +95,13 @@ export interface EtapaTrazabilidad {
 
 export type EtapaProduccion = 
   | 'SIEMBRA'
-  | 'CRECIMIENTO'
-  | 'FLORACION'
+  | 'GERMINACION'
+  | 'CRECIMIENTO_VEGETATIVO'
+  | 'PRE_FLORA'
+  | 'FLORA'
   | 'COSECHA'
   | 'SECADO'
-  | 'CURADO'
-  | 'EXTRACCION'
-  | 'PROCESAMIENTO'
-  | 'ENVASADO'
-  | 'CONTROL_CALIDAD'
-  | 'ALMACENAMIENTO';
+  | 'CURADO';
 
 export type EstadoEtapa = 'PENDIENTE' | 'EN_PROCESO' | 'COMPLETADO';
 
@@ -141,8 +138,13 @@ export interface CrearInformeDTO {
   planta_id: string;
   titulo: string;
   descripcion: string;
-  fecha: string;
-  tipo: TipoInforme;
+  tipo: PlantaInforme['tipo'];
+  fecha_informe: string;
+  autor?: string;
+  imagen_url?: string;
+  datos_medicion?: Record<string, any>;
+  recomendaciones?: string;
+  estado?: 'BORRADOR' | 'PUBLICADO' | 'ARCHIVADO';
 }
 
 export interface CrearEtapaDTO {
@@ -195,16 +197,13 @@ export const ESTADO_ETAPA_LABELS = {
 
 export const ETAPA_LABELS = {
   'SIEMBRA': '🌱 Siembra',
-  'CRECIMIENTO': '🌿 Crecimiento',
-  'FLORACION': '🌸 Floración',
+  'GERMINACION': '🌿 Germinación',
+  'CRECIMIENTO_VEGETATIVO': '🌳 Crecimiento Vegetativo',
+  'PRE_FLORA': '🌸 Pre-Flora',
+  'FLORA': '🌺 Flora',
   'COSECHA': '✂️ Cosecha',
   'SECADO': '🌾 Secado',
-  'CURADO': '🏺 Curado',
-  'EXTRACCION': '🧪 Extracción',
-  'PROCESAMIENTO': '⚙️ Procesamiento',
-  'ENVASADO': '📦 Envasado',
-  'CONTROL_CALIDAD': '✅ Control Calidad',
-  'ALMACENAMIENTO': '🏪 Almacenamiento'
+  'CURADO': '🏺 Curado'
 } as const;
 
 export const TIPO_INFORME_LABELS = {
